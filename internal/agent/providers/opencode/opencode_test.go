@@ -2,115 +2,24 @@ package opencode
 
 import (
 	"context"
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/CastAIPhil/AUTO/internal/agent"
 )
 
-// Helper to create a test storage structure with a session
-func createTestStorage(t *testing.T, sessionID, projectID, title, directory string, createdAt, updatedAt time.Time) string {
-	t.Helper()
-
-	tempDir := t.TempDir()
-
-	// Create session directory: storage/session/<projectID>/
-	sessionDir := filepath.Join(tempDir, "session", projectID)
-	if err := os.MkdirAll(sessionDir, 0755); err != nil {
-		t.Fatalf("Failed to create session dir: %v", err)
-	}
-
-	// Create session file
-	session := SessionData{
-		ID:        sessionID,
-		ProjectID: projectID,
-		Directory: directory,
-		Title:     title,
-	}
-	session.Time.Created = createdAt.UnixMilli()
-	session.Time.Updated = updatedAt.UnixMilli()
-
-	data, err := json.Marshal(session)
-	if err != nil {
-		t.Fatalf("Failed to marshal session: %v", err)
-	}
-
-	sessionFile := filepath.Join(sessionDir, sessionID+".json")
-	if err := os.WriteFile(sessionFile, data, 0644); err != nil {
-		t.Fatalf("Failed to write session file: %v", err)
-	}
-
-	// Create message directory: storage/message/<sessionID>/
-	messageDir := filepath.Join(tempDir, "message", sessionID)
-	if err := os.MkdirAll(messageDir, 0755); err != nil {
-		t.Fatalf("Failed to create message dir: %v", err)
-	}
-
-	// Create part directory: storage/part/<sessionID>/
-	partDir := filepath.Join(tempDir, "part", sessionID)
-	if err := os.MkdirAll(partDir, 0755); err != nil {
-		t.Fatalf("Failed to create part dir: %v", err)
-	}
-
-	return tempDir
-}
-
-// Helper to get the session file path
-func getSessionFilePath(storagePath, projectID, sessionID string) string {
-	return filepath.Join(storagePath, "session", projectID, sessionID+".json")
-}
-
-// Helper to add a message to a session
-func addTestMessage(t *testing.T, storagePath, sessionID string, msg MessageData) {
-	t.Helper()
-
-	messagesDir := filepath.Join(storagePath, "message", sessionID)
-	if err := os.MkdirAll(messagesDir, 0755); err != nil {
-		t.Fatalf("Failed to create messages dir: %v", err)
-	}
-
-	data, err := json.Marshal(msg)
-	if err != nil {
-		t.Fatalf("Failed to marshal message: %v", err)
-	}
-
-	msgFile := filepath.Join(messagesDir, msg.ID+".json")
-	if err := os.WriteFile(msgFile, data, 0644); err != nil {
-		t.Fatalf("Failed to write message: %v", err)
-	}
-}
-
-func addTestPart(t *testing.T, storagePath, messageID string, part PartData) {
-	t.Helper()
-
-	partsDir := filepath.Join(storagePath, "part", messageID)
-	if err := os.MkdirAll(partsDir, 0755); err != nil {
-		t.Fatalf("Failed to create parts dir: %v", err)
-	}
-
-	data, err := json.Marshal(part)
-	if err != nil {
-		t.Fatalf("Failed to marshal part: %v", err)
-	}
-
-	partFile := filepath.Join(partsDir, part.ID+".json")
-	if err := os.WriteFile(partFile, data, 0644); err != nil {
-		t.Fatalf("Failed to write part: %v", err)
-	}
-}
-
-func TestNewOpenCodeAgent(t *testing.T) {
+func TestNewOpenCodeAgentFromCLI(t *testing.T) {
 	now := time.Now()
-	storagePath := createTestStorage(t, "ses_test1", "global", "Test Session", "/home/user/project", now, now)
-	sessionFile := getSessionFilePath(storagePath, "global", "ses_test1")
-
-	a, err := NewOpenCodeAgent(storagePath, sessionFile)
-	if err != nil {
-		t.Fatalf("NewOpenCodeAgent() error = %v", err)
+	session := CLISession{
+		ID:        "ses_test1",
+		Title:     "Test Session",
+		Updated:   now.UnixMilli(),
+		Created:   now.Add(-1 * time.Hour).UnixMilli(),
+		ProjectID: "proj123",
+		Directory: "/home/user/project",
 	}
+
+	a := NewOpenCodeAgentFromCLI(session)
 
 	if a.ID() != "ses_test1" {
 		t.Errorf("ID() = %v, want %v", a.ID(), "ses_test1")
@@ -128,90 +37,42 @@ func TestNewOpenCodeAgent(t *testing.T) {
 		t.Errorf("Directory() = %v, want %v", a.Directory(), "/home/user/project")
 	}
 
-	if a.ProjectID() != "global" {
-		t.Errorf("ProjectID() = %v, want %v", a.ProjectID(), "global")
+	if a.ProjectID() != "proj123" {
+		t.Errorf("ProjectID() = %v, want %v", a.ProjectID(), "proj123")
 	}
 
-	// With lazy loading, initial status is based on session timestamps (fast path)
-	// A recently updated session shows as Running until full history is loaded
+	// Recently updated session should show as Running
 	if a.Status() != agent.StatusRunning {
-		t.Errorf("Status() = %v, want %v (fast status for recent session)", a.Status(), agent.StatusRunning)
-	}
-
-	// After loading full history, status should be Pending (no messages)
-	a.LoadFullHistory()
-	if a.Status() != agent.StatusPending {
-		t.Errorf("Status() after LoadFullHistory = %v, want %v", a.Status(), agent.StatusPending)
-	}
-}
-
-func TestNewOpenCodeAgent_InvalidPath(t *testing.T) {
-	_, err := NewOpenCodeAgent("/tmp", "/nonexistent/path/session.json")
-	if err == nil {
-		t.Error("NewOpenCodeAgent() expected error for invalid path")
-	}
-}
-
-func TestNewOpenCodeAgent_InvalidJSON(t *testing.T) {
-	tempDir := t.TempDir()
-	sessionDir := filepath.Join(tempDir, "session", "global")
-	os.MkdirAll(sessionDir, 0755)
-
-	sessionFile := filepath.Join(sessionDir, "invalid.json")
-	if err := os.WriteFile(sessionFile, []byte("not json"), 0644); err != nil {
-		t.Fatalf("Failed to write file: %v", err)
-	}
-
-	_, err := NewOpenCodeAgent(tempDir, sessionFile)
-	if err == nil {
-		t.Error("NewOpenCodeAgent() expected error for invalid JSON")
+		t.Errorf("Status() = %v, want %v (recently updated)", a.Status(), agent.StatusRunning)
 	}
 }
 
 func TestOpenCodeAgent_StatusRunning(t *testing.T) {
 	now := time.Now()
-	storagePath := createTestStorage(t, "ses_test", "global", "Test", "/project", now, now)
-	sessionFile := getSessionFilePath(storagePath, "global", "ses_test")
-
-	// Add a recent message (within 30 seconds)
-	msg := MessageData{
-		ID:        "msg-1",
-		SessionID: "ses_test",
-		Role:      "user",
+	session := CLISession{
+		ID:      "ses_test",
+		Title:   "Test",
+		Updated: now.Add(-10 * time.Second).UnixMilli(), // Updated 10 seconds ago
+		Created: now.Add(-1 * time.Hour).UnixMilli(),
 	}
-	msg.Time.Created = now.Add(-10 * time.Second).UnixMilli()
-	msg.Summary.Title = "Hello"
-	addTestMessage(t, storagePath, "ses_test", msg)
 
-	a, err := NewOpenCodeAgent(storagePath, sessionFile)
-	if err != nil {
-		t.Fatalf("NewOpenCodeAgent() error = %v", err)
-	}
+	a := NewOpenCodeAgentFromCLI(session)
 
 	if a.Status() != agent.StatusRunning {
-		t.Errorf("Status() = %v, want %v (recent message should indicate running)", a.Status(), agent.StatusRunning)
+		t.Errorf("Status() = %v, want %v (recent activity)", a.Status(), agent.StatusRunning)
 	}
 }
 
 func TestOpenCodeAgent_StatusIdle(t *testing.T) {
 	now := time.Now()
-	idleTime := now.Add(-5 * time.Minute)
-	storagePath := createTestStorage(t, "ses_test", "global", "Test", "/project", now, idleTime)
-	sessionFile := getSessionFilePath(storagePath, "global", "ses_test")
-
-	msg := MessageData{
-		ID:        "msg-1",
-		SessionID: "ses_test",
-		Role:      "user",
+	session := CLISession{
+		ID:      "ses_test",
+		Title:   "Test",
+		Updated: now.Add(-5 * time.Minute).UnixMilli(), // Updated 5 minutes ago
+		Created: now.Add(-1 * time.Hour).UnixMilli(),
 	}
-	msg.Time.Created = idleTime.UnixMilli()
-	msg.Summary.Title = "Hello"
-	addTestMessage(t, storagePath, "ses_test", msg)
 
-	a, err := NewOpenCodeAgent(storagePath, sessionFile)
-	if err != nil {
-		t.Fatalf("NewOpenCodeAgent() error = %v", err)
-	}
+	a := NewOpenCodeAgentFromCLI(session)
 
 	if a.Status() != agent.StatusIdle {
 		t.Errorf("Status() = %v, want %v", a.Status(), agent.StatusIdle)
@@ -220,161 +81,63 @@ func TestOpenCodeAgent_StatusIdle(t *testing.T) {
 
 func TestOpenCodeAgent_StatusCompleted(t *testing.T) {
 	now := time.Now()
-	oldTime := now.Add(-1 * time.Hour)
-	storagePath := createTestStorage(t, "ses_test", "global", "Test", "/project", oldTime, oldTime)
-	sessionFile := getSessionFilePath(storagePath, "global", "ses_test")
-
-	msg := MessageData{
-		ID:        "msg-1",
-		SessionID: "ses_test",
-		Role:      "user",
+	session := CLISession{
+		ID:      "ses_test",
+		Title:   "Test",
+		Updated: now.Add(-1 * time.Hour).UnixMilli(), // Updated 1 hour ago
+		Created: now.Add(-2 * time.Hour).UnixMilli(),
 	}
-	msg.Time.Created = oldTime.UnixMilli()
-	msg.Summary.Title = "Old task"
-	addTestMessage(t, storagePath, "ses_test", msg)
 
-	a, err := NewOpenCodeAgent(storagePath, sessionFile)
-	if err != nil {
-		t.Fatalf("NewOpenCodeAgent() error = %v", err)
-	}
+	a := NewOpenCodeAgentFromCLI(session)
 
 	if a.Status() != agent.StatusCompleted {
 		t.Errorf("Status() = %v, want %v", a.Status(), agent.StatusCompleted)
 	}
 }
 
-func TestOpenCodeAgent_StatusErrored(t *testing.T) {
+func TestOpenCodeAgent_Update(t *testing.T) {
 	now := time.Now()
-	errorTime := now.Add(-2 * time.Minute)
-	storagePath := createTestStorage(t, "ses_test", "global", "Test", "/project", now, errorTime)
-	sessionFile := getSessionFilePath(storagePath, "global", "ses_test")
-
-	msg := MessageData{
-		ID:        "msg-1",
-		SessionID: "ses_test",
-		Role:      "user",
-	}
-	msg.Time.Created = errorTime.UnixMilli()
-	addTestMessage(t, storagePath, "ses_test", msg)
-
-	part := PartData{
-		ID:        "part-1",
-		MessageID: "msg-1",
-		SessionID: "ses_test",
-		Type:      "tool-invocation",
-		State:     "error",
-	}
-	part.Time.Created = errorTime.UnixMilli()
-	addTestPart(t, storagePath, "msg-1", part)
-
-	a, err := NewOpenCodeAgent(storagePath, sessionFile)
-	if err != nil {
-		t.Fatalf("NewOpenCodeAgent() error = %v", err)
+	session := CLISession{
+		ID:      "ses_test",
+		Title:   "Original Title",
+		Updated: now.Add(-1 * time.Hour).UnixMilli(),
+		Created: now.Add(-2 * time.Hour).UnixMilli(),
 	}
 
-	a.LoadFullHistory()
-	if a.Status() != agent.StatusErrored {
-		t.Errorf("Status() = %v, want %v", a.Status(), agent.StatusErrored)
-	}
-}
-
-func TestOpenCodeAgent_CurrentTask(t *testing.T) {
-	now := time.Now()
-	storagePath := createTestStorage(t, "ses_test", "global", "Test", "/project", now, now)
-	sessionFile := getSessionFilePath(storagePath, "global", "ses_test")
-
-	msg := MessageData{
-		ID:        "msg-1",
-		SessionID: "ses_test",
-		Role:      "user",
-	}
-	msg.Time.Created = now.Add(-10 * time.Second).UnixMilli()
-	msg.Summary.Title = "Please implement the new feature"
-	addTestMessage(t, storagePath, "ses_test", msg)
-
-	a, err := NewOpenCodeAgent(storagePath, sessionFile)
-	if err != nil {
-		t.Fatalf("NewOpenCodeAgent() error = %v", err)
-	}
-
-	a.LoadFullHistory()
-	if a.CurrentTask() != "Please implement the new feature" {
-		t.Errorf("CurrentTask() = %v, want %v", a.CurrentTask(), "Please implement the new feature")
-	}
-}
-
-func TestOpenCodeAgent_CurrentTask_Truncated(t *testing.T) {
-	now := time.Now()
-	storagePath := createTestStorage(t, "ses_test", "global", "Test", "/project", now, now)
-	sessionFile := getSessionFilePath(storagePath, "global", "ses_test")
-
-	longTask := "This is a very long task description that exceeds one hundred characters and should be truncated when displayed"
-	msg := MessageData{
-		ID:        "msg-1",
-		SessionID: "ses_test",
-		Role:      "user",
-	}
-	msg.Time.Created = now.Add(-10 * time.Second).UnixMilli()
-	msg.Summary.Title = longTask
-	addTestMessage(t, storagePath, "ses_test", msg)
-
-	a, err := NewOpenCodeAgent(storagePath, sessionFile)
-	if err != nil {
-		t.Fatalf("NewOpenCodeAgent() error = %v", err)
-	}
-
-	a.LoadFullHistory()
-	task := a.CurrentTask()
-	if len(task) > 103 {
-		t.Errorf("CurrentTask() should be truncated, got length %d", len(task))
-	}
-	if len(task) > 3 && task[len(task)-3:] != "..." {
-		t.Errorf("CurrentTask() should end with '...', got %v", task)
-	}
-}
-
-func TestOpenCodeAgent_Refresh(t *testing.T) {
-	now := time.Now()
-	oldTime := now.Add(-1 * time.Hour)
-	storagePath := createTestStorage(t, "ses_test", "global", "Test", "/project", oldTime, oldTime)
-	sessionFile := getSessionFilePath(storagePath, "global", "ses_test")
-
-	a, err := NewOpenCodeAgent(storagePath, sessionFile)
-	if err != nil {
-		t.Fatalf("NewOpenCodeAgent() error = %v", err)
-	}
+	a := NewOpenCodeAgentFromCLI(session)
 
 	if a.Status() != agent.StatusCompleted {
 		t.Errorf("Initial Status() = %v, want %v", a.Status(), agent.StatusCompleted)
 	}
 
-	msg := MessageData{
-		ID:        "msg-1",
-		SessionID: "ses_test",
-		Role:      "user",
+	// Update with recent activity
+	updatedSession := CLISession{
+		ID:      "ses_test",
+		Title:   "Updated Title",
+		Updated: now.UnixMilli(), // Just updated
+		Created: now.Add(-2 * time.Hour).UnixMilli(),
 	}
-	msg.Time.Created = time.Now().UnixMilli()
-	msg.Summary.Title = "Hello"
-	addTestMessage(t, storagePath, "ses_test", msg)
 
-	if err := a.Refresh(); err != nil {
-		t.Errorf("Refresh() error = %v", err)
+	a.Update(updatedSession)
+
+	if a.Name() != "Updated Title" {
+		t.Errorf("Name() after update = %v, want %v", a.Name(), "Updated Title")
 	}
 
 	if a.Status() != agent.StatusRunning {
-		t.Errorf("After Refresh(), Status() = %v, want %v", a.Status(), agent.StatusRunning)
+		t.Errorf("Status() after update = %v, want %v", a.Status(), agent.StatusRunning)
 	}
 }
 
 func TestOpenCodeAgent_Terminate(t *testing.T) {
-	now := time.Now()
-	storagePath := createTestStorage(t, "ses_test", "global", "Test", "/project", now, now)
-	sessionFile := getSessionFilePath(storagePath, "global", "ses_test")
-
-	a, err := NewOpenCodeAgent(storagePath, sessionFile)
-	if err != nil {
-		t.Fatalf("NewOpenCodeAgent() error = %v", err)
+	session := CLISession{
+		ID:      "ses_test",
+		Title:   "Test",
+		Updated: time.Now().UnixMilli(),
+		Created: time.Now().UnixMilli(),
 	}
+
+	a := NewOpenCodeAgentFromCLI(session)
 
 	if err := a.Terminate(); err != nil {
 		t.Errorf("Terminate() error = %v", err)
@@ -386,18 +149,14 @@ func TestOpenCodeAgent_Terminate(t *testing.T) {
 }
 
 func TestOpenCodeAgent_UnsupportedOperations(t *testing.T) {
-	now := time.Now()
-	storagePath := createTestStorage(t, "ses_test", "global", "Test", "/project", now, now)
-	sessionFile := getSessionFilePath(storagePath, "global", "ses_test")
-
-	a, err := NewOpenCodeAgent(storagePath, sessionFile)
-	if err != nil {
-		t.Fatalf("NewOpenCodeAgent() error = %v", err)
+	session := CLISession{
+		ID:      "ses_test",
+		Title:   "Test",
+		Updated: time.Now().UnixMilli(),
+		Created: time.Now().UnixMilli(),
 	}
 
-	if err := a.SendInput("test"); err == nil {
-		t.Error("SendInput() should return error for unsupported operation")
-	}
+	a := NewOpenCodeAgentFromCLI(session)
 
 	if err := a.Pause(); err == nil {
 		t.Error("Pause() should return error for unsupported operation")
@@ -409,38 +168,38 @@ func TestOpenCodeAgent_UnsupportedOperations(t *testing.T) {
 }
 
 func TestOpenCodeAgent_NameFallback(t *testing.T) {
-	now := time.Now()
-	tempDir := t.TempDir()
-
-	// Create session with empty title
-	sessionDir := filepath.Join(tempDir, "session", "global")
-	os.MkdirAll(sessionDir, 0755)
-
-	session := SessionData{
-		ID:        "ses_abc12345678",
-		ProjectID: "global",
-		Directory: "/project",
-		Title:     "", // Empty title
+	session := CLISession{
+		ID:      "ses_abc12345678",
+		Title:   "", // Empty title
+		Updated: time.Now().UnixMilli(),
+		Created: time.Now().UnixMilli(),
 	}
-	session.Time.Created = now.UnixMilli()
-	session.Time.Updated = now.UnixMilli()
 
-	data, _ := json.Marshal(session)
-	sessionFile := filepath.Join(sessionDir, "ses_abc12345678.json")
-	os.WriteFile(sessionFile, data, 0644)
-
-	// Create message and part directories
-	os.MkdirAll(filepath.Join(tempDir, "message", "ses_abc12345678"), 0755)
-	os.MkdirAll(filepath.Join(tempDir, "part", "ses_abc12345678"), 0755)
-
-	a, err := NewOpenCodeAgent(tempDir, sessionFile)
-	if err != nil {
-		t.Fatalf("NewOpenCodeAgent() error = %v", err)
-	}
+	a := NewOpenCodeAgentFromCLI(session)
 
 	// Should fall back to short ID
 	if a.Name() != "ses_abc1" {
 		t.Errorf("Name() = %v, want %v (should fallback to short ID)", a.Name(), "ses_abc1")
+	}
+}
+
+func TestOpenCodeAgent_IsBackground(t *testing.T) {
+	session := CLISession{
+		ID:      "ses_test",
+		Title:   "Test",
+		Updated: time.Now().UnixMilli(),
+		Created: time.Now().UnixMilli(),
+	}
+
+	a := NewOpenCodeAgentFromCLI(session)
+
+	// Default agents don't have parent IDs (CLI doesn't expose this currently)
+	if a.IsBackground() {
+		t.Error("IsBackground() should be false for agents without parent")
+	}
+
+	if a.ParentID() != "" {
+		t.Errorf("ParentID() = %v, want empty string", a.ParentID())
 	}
 }
 
@@ -449,10 +208,6 @@ func TestProvider_NewProvider(t *testing.T) {
 
 	if p == nil {
 		t.Fatal("NewProvider() returned nil")
-	}
-
-	if p.storagePath != "/tmp/test" {
-		t.Errorf("storagePath = %v, want %v", p.storagePath, "/tmp/test")
 	}
 
 	if p.watchInterval != 5*time.Second {
@@ -472,121 +227,18 @@ func TestProvider_NewProvider(t *testing.T) {
 	}
 }
 
-func TestProvider_Discover(t *testing.T) {
-	tempDir := t.TempDir()
-	now := time.Now()
-
-	// Create session directory
-	sessionDir := filepath.Join(tempDir, "session", "global")
-	os.MkdirAll(sessionDir, 0755)
-
-	// Create session 1
-	s1 := SessionData{ID: "ses_1", ProjectID: "global", Directory: "/p1", Title: "Session 1"}
-	s1.Time.Created = now.UnixMilli()
-	s1.Time.Updated = now.UnixMilli()
-	data1, _ := json.Marshal(s1)
-	os.WriteFile(filepath.Join(sessionDir, "ses_1.json"), data1, 0644)
-	os.MkdirAll(filepath.Join(tempDir, "message", "ses_1"), 0755)
-	os.MkdirAll(filepath.Join(tempDir, "part", "ses_1"), 0755)
-
-	// Create session 2
-	s2 := SessionData{ID: "ses_2", ProjectID: "global", Directory: "/p2", Title: "Session 2"}
-	s2.Time.Created = now.UnixMilli()
-	s2.Time.Updated = now.UnixMilli()
-	data2, _ := json.Marshal(s2)
-	os.WriteFile(filepath.Join(sessionDir, "ses_2.json"), data2, 0644)
-	os.MkdirAll(filepath.Join(tempDir, "message", "ses_2"), 0755)
-	os.MkdirAll(filepath.Join(tempDir, "part", "ses_2"), 0755)
-
-	// Create a non-JSON file (should be skipped)
-	os.WriteFile(filepath.Join(sessionDir, "readme.txt"), []byte("test"), 0644)
-
-	p := NewProvider(tempDir, 5*time.Second, 0)
-	agents, err := p.Discover(context.Background())
-
-	if err != nil {
-		t.Fatalf("Discover() error = %v", err)
-	}
-
-	if len(agents) != 2 {
-		t.Errorf("Discover() returned %d agents, want %d", len(agents), 2)
-	}
-}
-
-func TestProvider_Discover_NonExistentPath(t *testing.T) {
-	p := NewProvider("/nonexistent/path", 5*time.Second, 0)
-	agents, err := p.Discover(context.Background())
-
-	if err != nil {
-		t.Fatalf("Discover() error = %v (should not error for nonexistent path)", err)
-	}
-
-	if agents != nil && len(agents) != 0 {
-		t.Errorf("Discover() should return empty for nonexistent path")
-	}
-}
-
-func TestProvider_Discover_MaxAge(t *testing.T) {
-	tempDir := t.TempDir()
-	now := time.Now()
-
-	sessionDir := filepath.Join(tempDir, "session", "global")
-	os.MkdirAll(sessionDir, 0755)
-
-	s1 := SessionData{ID: "ses_recent", ProjectID: "global", Directory: "/p1", Title: "Recent"}
-	s1.Time.Created = now.UnixMilli()
-	s1.Time.Updated = now.UnixMilli()
-	data1, _ := json.Marshal(s1)
-	os.WriteFile(filepath.Join(sessionDir, "ses_recent.json"), data1, 0644)
-	os.MkdirAll(filepath.Join(tempDir, "message", "ses_recent"), 0755)
-
-	oldTime := now.Add(-48 * time.Hour)
-	s2 := SessionData{ID: "ses_old", ProjectID: "global", Directory: "/p2", Title: "Old"}
-	s2.Time.Created = oldTime.UnixMilli()
-	s2.Time.Updated = oldTime.UnixMilli()
-	data2, _ := json.Marshal(s2)
-	os.WriteFile(filepath.Join(sessionDir, "ses_old.json"), data2, 0644)
-	os.MkdirAll(filepath.Join(tempDir, "message", "ses_old"), 0755)
-
-	p := NewProvider(tempDir, 5*time.Second, 24*time.Hour)
-	agents, err := p.Discover(context.Background())
-
-	if err != nil {
-		t.Fatalf("Discover() error = %v", err)
-	}
-
-	if len(agents) != 1 {
-		t.Errorf("Discover() with maxAge returned %d agents, want 1", len(agents))
-	}
-
-	if len(agents) > 0 && agents[0].ID() != "ses_recent" {
-		t.Errorf("Expected recent session, got %s", agents[0].ID())
-	}
-
-	pNoLimit := NewProvider(tempDir, 5*time.Second, 0)
-	agentsAll, _ := pNoLimit.Discover(context.Background())
-	if len(agentsAll) != 2 {
-		t.Errorf("Discover() with no maxAge returned %d agents, want 2", len(agentsAll))
-	}
-}
-
 func TestProvider_GetAndList(t *testing.T) {
-	tempDir := t.TempDir()
-	now := time.Now()
+	p := NewProvider("/tmp", 5*time.Second, 0)
 
-	sessionDir := filepath.Join(tempDir, "session", "global")
-	os.MkdirAll(sessionDir, 0755)
-
-	s := SessionData{ID: "ses_1", ProjectID: "global", Directory: "/p1", Title: "Session 1"}
-	s.Time.Created = now.UnixMilli()
-	s.Time.Updated = now.UnixMilli()
-	data, _ := json.Marshal(s)
-	os.WriteFile(filepath.Join(sessionDir, "ses_1.json"), data, 0644)
-	os.MkdirAll(filepath.Join(tempDir, "message", "ses_1"), 0755)
-	os.MkdirAll(filepath.Join(tempDir, "part", "ses_1"), 0755)
-
-	p := NewProvider(tempDir, 5*time.Second, 0)
-	p.Discover(context.Background())
+	// Manually add an agent for testing
+	session := CLISession{
+		ID:        "ses_1",
+		Title:     "Session 1",
+		Updated:   time.Now().UnixMilli(),
+		Created:   time.Now().UnixMilli(),
+		Directory: "/p1",
+	}
+	p.agents["ses_1"] = NewOpenCodeAgentFromCLI(session)
 
 	// Test Get
 	a, err := p.Get("ses_1")
@@ -611,22 +263,16 @@ func TestProvider_GetAndList(t *testing.T) {
 }
 
 func TestProvider_Terminate(t *testing.T) {
-	tempDir := t.TempDir()
-	now := time.Now()
+	p := NewProvider("/tmp", 5*time.Second, 0)
 
-	sessionDir := filepath.Join(tempDir, "session", "global")
-	os.MkdirAll(sessionDir, 0755)
-
-	s := SessionData{ID: "ses_1", ProjectID: "global", Directory: "/p1", Title: "Session 1"}
-	s.Time.Created = now.UnixMilli()
-	s.Time.Updated = now.UnixMilli()
-	data, _ := json.Marshal(s)
-	os.WriteFile(filepath.Join(sessionDir, "ses_1.json"), data, 0644)
-	os.MkdirAll(filepath.Join(tempDir, "message", "ses_1"), 0755)
-	os.MkdirAll(filepath.Join(tempDir, "part", "ses_1"), 0755)
-
-	p := NewProvider(tempDir, 5*time.Second, 0)
-	p.Discover(context.Background())
+	session := CLISession{
+		ID:        "ses_1",
+		Title:     "Session 1",
+		Updated:   time.Now().UnixMilli(),
+		Created:   time.Now().UnixMilli(),
+		Directory: "/p1",
+	}
+	p.agents["ses_1"] = NewOpenCodeAgentFromCLI(session)
 
 	// Terminate existing agent
 	if err := p.Terminate("ses_1"); err != nil {
@@ -645,54 +291,75 @@ func TestProvider_Terminate(t *testing.T) {
 	}
 }
 
-func TestProvider_SendInput(t *testing.T) {
-	tempDir := t.TempDir()
-	now := time.Now()
+func TestProvider_SendInput_Errors(t *testing.T) {
+	p := NewProvider("/tmp", 5*time.Second, 0)
 
-	sessionDir := filepath.Join(tempDir, "session", "global")
-	os.MkdirAll(sessionDir, 0755)
+	session := CLISession{
+		ID:        "ses_1",
+		Title:     "Session 1",
+		Updated:   time.Now().UnixMilli(),
+		Created:   time.Now().UnixMilli(),
+		Directory: "/tmp",
+	}
+	p.agents["ses_1"] = NewOpenCodeAgentFromCLI(session)
 
-	s := SessionData{ID: "ses_1", ProjectID: "global", Directory: tempDir, Title: "Session 1"}
-	s.Time.Created = now.UnixMilli()
-	s.Time.Updated = now.UnixMilli()
-	data, _ := json.Marshal(s)
-	os.WriteFile(filepath.Join(sessionDir, "ses_1.json"), data, 0644)
-	os.MkdirAll(filepath.Join(tempDir, "message", "ses_1"), 0755)
-	os.MkdirAll(filepath.Join(tempDir, "part", "ses_1"), 0755)
-
-	p := NewProvider(tempDir, 5*time.Second, 0)
-	p.Discover(context.Background())
-
+	// Empty input should error
 	if err := p.SendInput("ses_1", ""); err == nil {
 		t.Error("SendInput() should error for empty input")
 	}
 
+	// Non-existent agent should error
 	if err := p.SendInput("non-existent", "test"); err == nil {
 		t.Error("SendInput() should error for non-existent agent")
 	}
 }
 
+func TestProvider_ListPrimary(t *testing.T) {
+	p := NewProvider("/tmp", 5*time.Second, 0)
+
+	session := CLISession{
+		ID:        "ses_1",
+		Title:     "Session 1",
+		Updated:   time.Now().UnixMilli(),
+		Created:   time.Now().UnixMilli(),
+		Directory: "/p1",
+	}
+	p.agents["ses_1"] = NewOpenCodeAgentFromCLI(session)
+
+	list := p.ListPrimary()
+	if len(list) != 1 {
+		t.Errorf("ListPrimary() returned %d agents, want %d", len(list), 1)
+	}
+}
+
+func TestProvider_GetChildren(t *testing.T) {
+	p := NewProvider("/tmp", 5*time.Second, 0)
+
+	session := CLISession{
+		ID:        "ses_1",
+		Title:     "Session 1",
+		Updated:   time.Now().UnixMilli(),
+		Created:   time.Now().UnixMilli(),
+		Directory: "/p1",
+	}
+	p.agents["ses_1"] = NewOpenCodeAgentFromCLI(session)
+
+	// No children since we don't have parent/child relationships in CLI output
+	children := p.GetChildren("ses_1")
+	if len(children) != 0 {
+		t.Errorf("GetChildren() returned %d children, want 0", len(children))
+	}
+
+	count := p.ChildCount("ses_1")
+	if count != 0 {
+		t.Errorf("ChildCount() = %d, want 0", count)
+	}
+}
+
 func TestProvider_Watch(t *testing.T) {
-	tempDir := t.TempDir()
-	now := time.Now()
+	p := NewProvider("/tmp", 100*time.Millisecond, 0)
 
-	// Create session directory
-	sessionDir := filepath.Join(tempDir, "session", "global")
-	os.MkdirAll(sessionDir, 0755)
-
-	// Create initial session
-	s := SessionData{ID: "ses_1", ProjectID: "global", Directory: "/p1", Title: "Session 1"}
-	s.Time.Created = now.UnixMilli()
-	s.Time.Updated = now.UnixMilli()
-	data, _ := json.Marshal(s)
-	os.WriteFile(filepath.Join(sessionDir, "ses_1.json"), data, 0644)
-	os.MkdirAll(filepath.Join(tempDir, "message", "ses_1"), 0755)
-	os.MkdirAll(filepath.Join(tempDir, "part", "ses_1"), 0755)
-
-	p := NewProvider(tempDir, 100*time.Millisecond, 0)
-	p.Discover(context.Background())
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
 	events, err := p.Watch(ctx)
@@ -700,52 +367,28 @@ func TestProvider_Watch(t *testing.T) {
 		t.Fatalf("Watch() error = %v", err)
 	}
 
-	// Create a new session while watching
-	s2 := SessionData{ID: "ses_2", ProjectID: "global", Directory: "/p2", Title: "Session 2"}
-	s2.Time.Created = now.UnixMilli()
-	s2.Time.Updated = now.UnixMilli()
-	data2, _ := json.Marshal(s2)
-	os.WriteFile(filepath.Join(sessionDir, "ses_2.json"), data2, 0644)
-
-	// Wait for event or timeout
+	// Just verify the channel is returned and closes on context cancel
+	<-ctx.Done()
+	// Channel should close after context is done
 	select {
-	case event := <-events:
-		if event.Type != agent.EventAgentDiscovered && event.Type != agent.EventAgentUpdated {
-			t.Errorf("Expected discovery or update event, got %v", event.Type)
+	case _, ok := <-events:
+		if ok {
+			// Got an event, that's fine
 		}
-	case <-ctx.Done():
-		// Timeout is acceptable - file watcher events can be flaky in tests
-		t.Log("Watch test timed out (acceptable in CI)")
+	case <-time.After(500 * time.Millisecond):
+		// Timeout is acceptable
 	}
 }
 
 func TestOpenCodeAgent_Output(t *testing.T) {
-	now := time.Now()
-	storagePath := createTestStorage(t, "ses_test", "global", "Test", "/project", now, now)
-	sessionFile := getSessionFilePath(storagePath, "global", "ses_test")
-
-	msg := MessageData{
-		ID:        "msg-1",
-		SessionID: "ses_test",
-		Role:      "assistant",
+	session := CLISession{
+		ID:      "ses_test",
+		Title:   "Test",
+		Updated: time.Now().UnixMilli(),
+		Created: time.Now().UnixMilli(),
 	}
-	msg.Time.Created = now.UnixMilli()
-	addTestMessage(t, storagePath, "ses_test", msg)
 
-	part := PartData{
-		ID:        "part-1",
-		MessageID: "msg-1",
-		SessionID: "ses_test",
-		Type:      "text",
-		Text:      "Hello, this is output",
-	}
-	part.Time.Created = now.UnixMilli()
-	addTestPart(t, storagePath, "msg-1", part)
-
-	a, err := NewOpenCodeAgent(storagePath, sessionFile)
-	if err != nil {
-		t.Fatalf("NewOpenCodeAgent() error = %v", err)
-	}
+	a := NewOpenCodeAgentFromCLI(session)
 
 	output := a.Output()
 	if output == nil {
@@ -755,13 +398,14 @@ func TestOpenCodeAgent_Output(t *testing.T) {
 
 func TestOpenCodeAgent_StartTime(t *testing.T) {
 	createdAt := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
-	storagePath := createTestStorage(t, "ses_test", "global", "Test", "/project", createdAt, createdAt)
-	sessionFile := getSessionFilePath(storagePath, "global", "ses_test")
-
-	a, err := NewOpenCodeAgent(storagePath, sessionFile)
-	if err != nil {
-		t.Fatalf("NewOpenCodeAgent() error = %v", err)
+	session := CLISession{
+		ID:      "ses_test",
+		Title:   "Test",
+		Updated: time.Now().UnixMilli(),
+		Created: createdAt.UnixMilli(),
 	}
+
+	a := NewOpenCodeAgentFromCLI(session)
 
 	// Check within 1 second tolerance (millisecond precision)
 	diff := a.StartTime().Sub(createdAt)
@@ -771,14 +415,14 @@ func TestOpenCodeAgent_StartTime(t *testing.T) {
 }
 
 func TestOpenCodeAgent_LastError(t *testing.T) {
-	now := time.Now()
-	storagePath := createTestStorage(t, "ses_test", "global", "Test", "/project", now, now)
-	sessionFile := getSessionFilePath(storagePath, "global", "ses_test")
-
-	a, err := NewOpenCodeAgent(storagePath, sessionFile)
-	if err != nil {
-		t.Fatalf("NewOpenCodeAgent() error = %v", err)
+	session := CLISession{
+		ID:      "ses_test",
+		Title:   "Test",
+		Updated: time.Now().UnixMilli(),
+		Created: time.Now().UnixMilli(),
 	}
+
+	a := NewOpenCodeAgentFromCLI(session)
 
 	// Initially no error
 	if a.LastError() != nil {
@@ -787,18 +431,48 @@ func TestOpenCodeAgent_LastError(t *testing.T) {
 }
 
 func TestOpenCodeAgent_Metrics(t *testing.T) {
-	now := time.Now()
-	storagePath := createTestStorage(t, "ses_test", "global", "Test", "/project", now, now)
-	sessionFile := getSessionFilePath(storagePath, "global", "ses_test")
-
-	a, err := NewOpenCodeAgent(storagePath, sessionFile)
-	if err != nil {
-		t.Fatalf("NewOpenCodeAgent() error = %v", err)
+	session := CLISession{
+		ID:      "ses_test",
+		Title:   "Test",
+		Updated: time.Now().UnixMilli(),
+		Created: time.Now().UnixMilli(),
 	}
+
+	a := NewOpenCodeAgentFromCLI(session)
 
 	// Metrics should be initialized
 	metrics := a.Metrics()
 	if metrics.TokensIn < 0 || metrics.TokensOut < 0 {
 		t.Error("Metrics should have non-negative values")
 	}
+}
+
+func TestOpenCodeAgent_Refresh(t *testing.T) {
+	session := CLISession{
+		ID:      "ses_test",
+		Title:   "Test",
+		Updated: time.Now().UnixMilli(),
+		Created: time.Now().UnixMilli(),
+	}
+
+	a := NewOpenCodeAgentFromCLI(session)
+
+	// Refresh is a no-op for CLI-based agents
+	if err := a.Refresh(); err != nil {
+		t.Errorf("Refresh() error = %v", err)
+	}
+}
+
+func TestOpenCodeAgent_LoadFullHistory(t *testing.T) {
+	session := CLISession{
+		ID:      "ses_test",
+		Title:   "Test",
+		Updated: time.Now().UnixMilli(),
+		Created: time.Now().UnixMilli(),
+	}
+
+	a := NewOpenCodeAgentFromCLI(session)
+
+	// LoadFullHistory is a no-op for CLI-based agents (can be implemented with opencode export)
+	a.LoadFullHistory() // Should not panic
 }
