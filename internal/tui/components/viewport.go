@@ -24,6 +24,12 @@ type SessionViewport struct {
 	height        int
 	autoScroll    bool
 	isStreaming   bool
+
+	lastContentLen   int
+	formattedContent string
+	contentDirty     bool
+	headerDirty      bool
+	cachedHeader     string
 }
 
 // NewSessionViewport creates a new session viewport
@@ -32,11 +38,13 @@ func NewSessionViewport(theme *Theme, width, height int) *SessionViewport {
 	vp.Style = lipgloss.NewStyle()
 
 	return &SessionViewport{
-		viewport:   vp,
-		theme:      theme,
-		width:      width,
-		height:     height,
-		autoScroll: true,
+		viewport:     vp,
+		theme:        theme,
+		width:        width,
+		height:       height,
+		autoScroll:   true,
+		contentDirty: true,
+		headerDirty:  true,
 	}
 }
 
@@ -103,25 +111,35 @@ func (s *SessionViewport) refreshContent() tea.Cmd {
 // updateContent updates the viewport content from the agent
 func (s *SessionViewport) updateContent() {
 	if s.agent == nil {
-		s.content = s.renderEmptyState()
-		s.viewport.SetContent(s.content)
+		if s.content != "" || s.formattedContent == "" {
+			s.content = ""
+			s.formattedContent = s.renderEmptyState()
+			s.viewport.SetContent(s.formattedContent)
+		}
 		return
 	}
 
-	// Read output from agent
 	reader := s.agent.Output()
 	data, err := io.ReadAll(reader)
 	if err != nil {
 		s.content = fmt.Sprintf("Error reading output: %v", err)
-	} else {
-		s.content = string(data)
+		s.formattedContent = s.content
+		s.viewport.SetContent(s.formattedContent)
+		return
 	}
 
-	// Apply syntax highlighting / formatting
-	s.content = s.formatContent(s.content)
-	s.viewport.SetContent(s.content)
+	newLen := len(data)
+	if newLen == s.lastContentLen && !s.contentDirty {
+		return
+	}
 
-	// Auto-scroll if enabled
+	s.content = string(data)
+	s.lastContentLen = newLen
+	s.formattedContent = s.formatContent(s.content)
+	s.viewport.SetContent(s.formattedContent)
+	s.contentDirty = false
+	s.headerDirty = true
+
 	if s.autoScroll {
 		s.viewport.GotoBottom()
 	}
@@ -172,19 +190,19 @@ func (s *SessionViewport) View() string {
 		style = s.theme.FocusedBorder(style)
 	}
 
-	// Build header
-	header := s.renderHeader()
+	if s.headerDirty || s.cachedHeader == "" {
+		s.cachedHeader = s.renderHeader()
+		s.headerDirty = false
+	}
 
-	// Build footer with scroll info
 	footer := s.renderFooter()
 
-	// Calculate viewport height
-	viewportHeight := s.height - 4 - lipgloss.Height(header) - lipgloss.Height(footer)
+	viewportHeight := s.height - 4 - lipgloss.Height(s.cachedHeader) - lipgloss.Height(footer)
 	s.viewport.Height = viewportHeight
 
 	return style.Render(
 		lipgloss.JoinVertical(lipgloss.Left,
-			header,
+			s.cachedHeader,
 			s.viewport.View(),
 			footer,
 		),
@@ -264,6 +282,9 @@ func (s *SessionViewport) IsFocused() bool {
 // SetAgent sets the agent to display
 func (s *SessionViewport) SetAgent(ag agent.Agent) {
 	s.agent = ag
+	s.lastContentLen = 0
+	s.contentDirty = true
+	s.headerDirty = true
 	s.updateContent()
 }
 
@@ -297,7 +318,6 @@ func (s *SessionViewport) handleStreamEvent(msg StreamEventMsg) tea.Cmd {
 	case "text":
 		s.isStreaming = true
 		s.streamContent.WriteString(event.Text)
-		// Update viewport content with stream
 		combined := s.content + "\n" + s.streamContent.String()
 		s.viewport.SetContent(s.formatContent(combined))
 		if s.autoScroll {
@@ -323,7 +343,6 @@ func (s *SessionViewport) handleStreamEvent(msg StreamEventMsg) tea.Cmd {
 
 	case "done", "error":
 		s.isStreaming = false
-		// Merge stream content into main content
 		if s.streamContent.Len() > 0 {
 			s.content = s.content + "\n" + s.streamContent.String()
 			s.streamContent.Reset()
@@ -355,6 +374,11 @@ func (s *SessionViewport) AppendUserInput(input string) {
 // IsStreaming returns whether the viewport is currently streaming
 func (s *SessionViewport) IsStreaming() bool {
 	return s.isStreaming
+}
+
+func (s *SessionViewport) MarkDirty() {
+	s.contentDirty = true
+	s.headerDirty = true
 }
 
 // FormatDuration formats a duration for display

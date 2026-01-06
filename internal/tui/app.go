@@ -198,6 +198,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.stats != nil {
 			a.stats.MarkDirty()
 		}
+		if a.viewport != nil {
+			a.viewport.MarkDirty()
+			var cmd tea.Cmd
+			a.viewport, cmd = a.viewport.Update(components.ViewportRefreshMsg{})
+			cmds = append(cmds, cmd)
+		}
 		cmds = append(cmds, a.tickCmd())
 		cmds = append(cmds, a.waitForEvents())
 
