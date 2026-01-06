@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/CastAIPhil/AUTO/internal/agent"
 	"github.com/CastAIPhil/AUTO/internal/session"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // StatsPanel displays aggregate statistics
@@ -17,6 +17,9 @@ type StatsPanel struct {
 	focused bool
 	width   int
 	height  int
+
+	cachedView string
+	dirty      bool
 }
 
 // NewStatsPanel creates a new stats panel
@@ -26,6 +29,7 @@ func NewStatsPanel(theme *Theme, manager *session.Manager, width, height int) *S
 		manager: manager,
 		width:   width,
 		height:  height,
+		dirty:   true,
 	}
 }
 
@@ -36,8 +40,15 @@ func (s *StatsPanel) Init() tea.Cmd {
 
 // Update handles messages
 func (s *StatsPanel) Update(msg tea.Msg) (*StatsPanel, tea.Cmd) {
-	// Stats panel doesn't handle input directly
+	switch msg.(type) {
+	case AgentListRefreshMsg:
+		s.dirty = true
+	}
 	return s, nil
+}
+
+func (s *StatsPanel) MarkDirty() {
+	s.dirty = true
 }
 
 // View renders the stats panel
@@ -47,21 +58,27 @@ func (s *StatsPanel) View() string {
 		style = s.theme.FocusedBorder(style)
 	}
 
+	if s.dirty || s.cachedView == "" {
+		s.cachedView = s.renderContent()
+		s.dirty = false
+	}
+
+	return style.Render(s.cachedView)
+}
+
+func (s *StatsPanel) renderContent() string {
 	stats := s.manager.Stats()
 
 	var b strings.Builder
 
-	// Title
 	b.WriteString(s.theme.Title.Render("Statistics"))
 	b.WriteString("\n\n")
 
-	// Status breakdown
 	b.WriteString(s.theme.Subtitle.Render("Agents"))
 	b.WriteString("\n")
 	b.WriteString(s.renderStatusBar(stats))
 	b.WriteString("\n\n")
 
-	// Counts
 	b.WriteString(fmt.Sprintf("  Total:     %d\n", stats.Total))
 	b.WriteString(fmt.Sprintf("  %s Running:  %d\n",
 		s.theme.StatusStyle(agent.StatusRunning).Render("●"),
@@ -77,7 +94,6 @@ func (s *StatsPanel) View() string {
 		stats.ByStatus[agent.StatusErrored]))
 	b.WriteString("\n")
 
-	// Token usage
 	b.WriteString(s.theme.Subtitle.Render("Usage"))
 	b.WriteString("\n")
 	b.WriteString(fmt.Sprintf("  Tokens In:  %s\n", formatNumber(stats.TotalTokensIn)))
@@ -86,7 +102,6 @@ func (s *StatsPanel) View() string {
 	b.WriteString(fmt.Sprintf("  Tool Calls: %d\n", stats.TotalToolCalls))
 	b.WriteString(fmt.Sprintf("  Errors:     %d\n", stats.TotalErrors))
 
-	// Types breakdown if multiple types
 	if len(stats.ByType) > 1 {
 		b.WriteString("\n")
 		b.WriteString(s.theme.Subtitle.Render("By Type"))
@@ -96,7 +111,6 @@ func (s *StatsPanel) View() string {
 		}
 	}
 
-	// Projects breakdown if multiple projects
 	if len(stats.ByProject) > 1 && len(stats.ByProject) <= 5 {
 		b.WriteString("\n")
 		b.WriteString(s.theme.Subtitle.Render("By Project"))
@@ -110,7 +124,7 @@ func (s *StatsPanel) View() string {
 		}
 	}
 
-	return style.Render(b.String())
+	return b.String()
 }
 
 // renderStatusBar renders a visual status bar
@@ -172,8 +186,11 @@ func (s *StatsPanel) renderStatusBar(stats *session.Stats) string {
 
 // SetSize sets the component size
 func (s *StatsPanel) SetSize(width, height int) {
-	s.width = width
-	s.height = height
+	if s.width != width || s.height != height {
+		s.width = width
+		s.height = height
+		s.dirty = true
+	}
 }
 
 // SetFocused sets the focus state

@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CastAIPhil/AUTO/internal/agent"
+	"github.com/CastAIPhil/AUTO/internal/session"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/CastAIPhil/AUTO/internal/agent"
-	"github.com/CastAIPhil/AUTO/internal/session"
 )
 
 type AgentItem struct {
@@ -70,6 +70,9 @@ type AgentList struct {
 	selected    agent.Agent
 	viewMode    ViewMode
 	parentAgent agent.Agent
+
+	cachedHeader string
+	headerDirty  bool
 }
 
 type AgentListKeyMap struct {
@@ -146,13 +149,14 @@ func NewAgentList(theme *Theme, manager *session.Manager, width, height int) *Ag
 	l.Styles.FilterCursor = theme.Base.Copy().Foreground(theme.Primary)
 
 	return &AgentList{
-		list:      l,
-		theme:     theme,
-		manager:   manager,
-		groupMode: session.GroupModeFlat,
-		width:     width,
-		height:    height,
-		viewMode:  ViewModePrimary,
+		list:        l,
+		theme:       theme,
+		manager:     manager,
+		groupMode:   session.GroupModeFlat,
+		width:       width,
+		height:      height,
+		viewMode:    ViewModePrimary,
+		headerDirty: true,
 	}
 }
 
@@ -232,9 +236,11 @@ func (a *AgentList) Update(msg tea.Msg) (*AgentList, tea.Cmd) {
 
 	case AgentListRefreshMsg:
 		a.updateItems()
+		a.headerDirty = true
 
 	case agent.Event:
 		a.updateItems()
+		a.headerDirty = true
 		if a.selected != nil && msg.AgentID == a.selected.ID() && msg.Agent != nil {
 			a.selected = msg.Agent
 			cmds = append(cmds, func() tea.Msg {
@@ -301,33 +307,39 @@ func (a *AgentList) View() string {
 		style = a.theme.FocusedBorder(style)
 	}
 
-	var header string
+	if a.headerDirty {
+		a.updateHeader()
+		a.headerDirty = false
+	}
+
+	a.list.Title = a.cachedHeader
+
+	return style.Render(a.list.View())
+}
+
+func (a *AgentList) updateHeader() {
 	if a.viewMode == ViewModeChildren && a.parentAgent != nil {
 		childCount := len(a.list.Items())
 		parentName := a.parentAgent.Name()
 		if len(parentName) > 20 {
 			parentName = parentName[:20] + "..."
 		}
-		header = fmt.Sprintf("← %s (%d children)", parentName, childCount)
+		a.cachedHeader = fmt.Sprintf("← %s (%d children)", parentName, childCount)
 	} else {
 		stats := a.manager.Stats()
 		primaryCount := len(a.manager.ListPrimary())
-		header = fmt.Sprintf("Agents (%d)", primaryCount)
+		a.cachedHeader = fmt.Sprintf("Agents (%d)", primaryCount)
 		if stats.ByStatus[agent.StatusRunning] > 0 {
-			header += fmt.Sprintf(" | %s %d running",
+			a.cachedHeader += fmt.Sprintf(" | %s %d running",
 				a.theme.StatusStyle(agent.StatusRunning).Render("●"),
 				stats.ByStatus[agent.StatusRunning])
 		}
 		if stats.ByStatus[agent.StatusErrored] > 0 {
-			header += fmt.Sprintf(" | %s %d errors",
+			a.cachedHeader += fmt.Sprintf(" | %s %d errors",
 				a.theme.StatusStyle(agent.StatusErrored).Render("●"),
 				stats.ByStatus[agent.StatusErrored])
 		}
 	}
-
-	a.list.Title = header
-
-	return style.Render(a.list.View())
 }
 
 // SetSize sets the component size

@@ -55,6 +55,10 @@ type App struct {
 	streamChan    <-chan agent.StreamEvent
 	streamAgentID string
 	streamCancel  func()
+
+	cachedStats     *session.Stats
+	cachedMiniStats string
+	statsDirty      bool
 }
 
 func NewTheme(cfg *config.ThemeConfig) *Theme {
@@ -74,6 +78,7 @@ func NewApp(cfg *config.Config, manager *session.Manager, alertMgr *alert.Manage
 		showStats:  cfg.UI.ShowMetrics,
 		showAlerts: true,
 		eventChan:  make(chan agent.Event, 100),
+		statsDirty: true,
 	}
 }
 
@@ -189,10 +194,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tickMsg:
+		a.statsDirty = true
+		if a.stats != nil {
+			a.stats.MarkDirty()
+		}
 		cmds = append(cmds, a.tickCmd())
 		cmds = append(cmds, a.waitForEvents())
 
 	case agent.Event:
+		a.statsDirty = true
+		if a.stats != nil {
+			a.stats.MarkDirty()
+		}
 		if a.agentList != nil {
 			var cmd tea.Cmd
 			a.agentList, cmd = a.agentList.Update(msg)
@@ -460,10 +473,15 @@ func (a *App) View() string {
 // renderHeader renders the header
 func (a *App) renderHeader() string {
 	title := a.theme.Title.Render("AUTO")
-	stats := components.MiniStats(a.theme, a.manager.Stats())
+
+	if a.statsDirty || a.cachedStats == nil {
+		a.cachedStats = a.manager.Stats()
+		a.cachedMiniStats = components.MiniStats(a.theme, a.cachedStats)
+		a.statsDirty = false
+	}
 
 	width := a.width - lipgloss.Width(title) - 4
-	statsRight := lipgloss.NewStyle().Width(width).Align(lipgloss.Right).Render(stats)
+	statsRight := lipgloss.NewStyle().Width(width).Align(lipgloss.Right).Render(a.cachedMiniStats)
 
 	return a.theme.Header.Width(a.width).Render(
 		lipgloss.JoinHorizontal(lipgloss.Top, title, statsRight),
