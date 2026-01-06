@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/CastAIPhil/AUTO/internal/agent"
@@ -26,6 +27,17 @@ var (
 )
 
 func main() {
+	startTime := time.Now()
+
+	os.MkdirAll("./logs", 0755)
+	logFile, err := os.OpenFile("./logs/auto.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err == nil {
+		log.SetOutput(logFile)
+		defer logFile.Close()
+	}
+	log.SetFlags(log.Ltime | log.Lmicroseconds)
+	log.Printf("[TIMING] Application starting...")
+
 	var (
 		configPath  string
 		showVersion bool
@@ -46,20 +58,26 @@ func main() {
 		configPath = config.ConfigPath()
 	}
 
+	t := time.Now()
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
+	log.Printf("[TIMING] Config loaded in %v", time.Since(t))
 
+	t = time.Now()
 	st, err := store.New(cfg.Storage.DatabasePath)
 	if err != nil {
 		log.Fatalf("Failed to initialize store: %v", err)
 	}
 	defer st.Close()
+	log.Printf("[TIMING] Store initialized in %v", time.Since(t))
 
+	t = time.Now()
 	registry := agent.NewRegistry()
 
 	if cfg.Providers.OpenCode.Enabled {
+		log.Printf("[TIMING] OpenCode provider enabled, storage: %s, maxAge: %v", cfg.Providers.OpenCode.StoragePath, cfg.Providers.OpenCode.MaxAge)
 		provider := opencode.NewProvider(
 			cfg.Providers.OpenCode.StoragePath,
 			cfg.Providers.OpenCode.WatchInterval,
@@ -67,6 +85,7 @@ func main() {
 		)
 		registry.Register(provider)
 	}
+	log.Printf("[TIMING] Registry setup in %v", time.Since(t))
 
 	alertMgr := alert.NewManager(&cfg.Alerts, st)
 
@@ -75,9 +94,13 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	t = time.Now()
+	log.Printf("[TIMING] Starting session manager...")
 	if err := sessionMgr.Start(ctx); err != nil {
 		log.Fatalf("Failed to start session manager: %v", err)
 	}
+	log.Printf("[TIMING] Session manager started in %v", time.Since(t))
+	log.Printf("[TIMING] Total startup time: %v", time.Since(startTime))
 
 	app := tui.NewApp(cfg, sessionMgr, alertMgr)
 	app.SetContext(ctx)

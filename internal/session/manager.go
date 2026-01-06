@@ -3,6 +3,7 @@ package session
 
 import (
 	"context"
+	"log"
 	"sync"
 	"time"
 
@@ -45,13 +46,17 @@ func (m *Manager) Start(ctx context.Context) error {
 	ctx, m.cancel = context.WithCancel(ctx)
 
 	// Initial discovery
+	t := time.Now()
+	log.Printf("[TIMING] Manager: Starting DiscoverAll...")
 	agents, err := m.registry.DiscoverAll(ctx)
 	if err != nil {
 		return err
 	}
+	log.Printf("[TIMING] Manager: DiscoverAll completed in %v, found %d agents", time.Since(t), len(agents))
 
+	t = time.Now()
 	m.mu.Lock()
-	for _, a := range agents {
+	for i, a := range agents {
 		m.agents[a.ID()] = a
 		// Persist to store
 		if m.store != nil {
@@ -69,14 +74,20 @@ func (m *Manager) Start(ctx context.Context) error {
 				TokensOut:    a.Metrics().TokensOut,
 			})
 		}
+		if (i+1)%50 == 0 {
+			log.Printf("[TIMING] Manager: Processed %d/%d agents so far...", i+1, len(agents))
+		}
 	}
 	m.mu.Unlock()
+	log.Printf("[TIMING] Manager: Agent processing + store save completed in %v", time.Since(t))
 
 	// Start watching for events
+	t = time.Now()
 	events, err := m.registry.WatchAll(ctx)
 	if err != nil {
 		return err
 	}
+	log.Printf("[TIMING] Manager: WatchAll setup completed in %v", time.Since(t))
 
 	go m.processEvents(ctx, events)
 
