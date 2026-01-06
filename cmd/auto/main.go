@@ -10,13 +10,13 @@ import (
 	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/localrivet/auto/internal/agent"
-	"github.com/localrivet/auto/internal/agent/providers/opencode"
-	"github.com/localrivet/auto/internal/alert"
-	"github.com/localrivet/auto/internal/config"
-	"github.com/localrivet/auto/internal/session"
-	"github.com/localrivet/auto/internal/store"
-	"github.com/localrivet/auto/internal/tui"
+	"github.com/CastAIPhil/AUTO/internal/agent"
+	"github.com/CastAIPhil/AUTO/internal/agent/providers/opencode"
+	"github.com/CastAIPhil/AUTO/internal/alert"
+	"github.com/CastAIPhil/AUTO/internal/config"
+	"github.com/CastAIPhil/AUTO/internal/session"
+	"github.com/CastAIPhil/AUTO/internal/store"
+	"github.com/CastAIPhil/AUTO/internal/tui"
 )
 
 var (

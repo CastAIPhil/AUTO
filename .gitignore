@@ -11,13 +11,17 @@
 .vscode/
 *.swp
 *.swo
+*~
 
 # OS
 .DS_Store
+.DS_Store?
+._*
 Thumbs.db
 
 # Build
 *.exe
+*.exe~
 *.dll
 *.so
 *.dylib
@@ -26,6 +30,7 @@ Thumbs.db
 *.test
 *.out
 coverage.out
+coverage.html
 
 # Logs
 *.log
@@ -35,3 +40,14 @@ logs/
 .env
 .env.local
 config.local.yaml
+*.local.yaml
+*.local.yml
+
+# SQLite databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Go workspace
+go.work
+go.work.sum

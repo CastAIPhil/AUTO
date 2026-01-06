@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/gen2brain/beeep"
-	"github.com/localrivet/auto/internal/agent"
-	"github.com/localrivet/auto/internal/config"
-	"github.com/localrivet/auto/internal/store"
+	"github.com/CastAIPhil/AUTO/internal/agent"
+	"github.com/CastAIPhil/AUTO/internal/config"
+	"github.com/CastAIPhil/AUTO/internal/store"
 	"github.com/slack-go/slack"
 )
 

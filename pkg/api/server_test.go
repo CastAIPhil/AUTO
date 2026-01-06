@@ -6,9 +6,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/localrivet/auto/internal/agent"
-	"github.com/localrivet/auto/internal/config"
-	"github.com/localrivet/auto/internal/session"
+	"github.com/CastAIPhil/AUTO/internal/agent"
+	"github.com/CastAIPhil/AUTO/internal/config"
+	"github.com/CastAIPhil/AUTO/internal/session"
 )
 
 func setupTestServer() (*Server, *session.Manager) {

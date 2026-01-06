@@ -3,8 +3,8 @@ package components
 
 import (
 	"github.com/charmbracelet/lipgloss"
-	"github.com/localrivet/auto/internal/agent"
-	"github.com/localrivet/auto/internal/config"
+	"github.com/CastAIPhil/AUTO/internal/agent"
+	"github.com/CastAIPhil/AUTO/internal/config"
 )
 
 // Theme holds all the styles for the TUI

@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/localrivet/auto/internal/agent"
-	"github.com/localrivet/auto/internal/alert"
-	"github.com/localrivet/auto/internal/config"
-	"github.com/localrivet/auto/internal/store"
+	"github.com/CastAIPhil/AUTO/internal/agent"
+	"github.com/CastAIPhil/AUTO/internal/alert"
+	"github.com/CastAIPhil/AUTO/internal/config"
+	"github.com/CastAIPhil/AUTO/internal/store"
 )
 
 // Manager coordinates session discovery, monitoring, and lifecycle
@@ -446,4 +446,43 @@ func (m *Manager) AddAgentForTesting(a agent.Agent) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.agents[a.ID()] = a
+}
+
+func (m *Manager) ListPrimary() []agent.Agent {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	agents := make([]agent.Agent, 0)
+	for _, a := range m.agents {
+		if !a.IsBackground() {
+			agents = append(agents, a)
+		}
+	}
+	return agents
+}
+
+func (m *Manager) GetChildren(parentID string) []agent.Agent {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	children := make([]agent.Agent, 0)
+	for _, a := range m.agents {
+		if a.ParentID() == parentID {
+			children = append(children, a)
+		}
+	}
+	return children
+}
+
+func (m *Manager) ChildCount(parentID string) int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	count := 0
+	for _, a := range m.agents {
+		if a.ParentID() == parentID {
+			count++
+		}
+	}
+	return count
 }

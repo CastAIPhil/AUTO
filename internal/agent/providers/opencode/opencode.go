@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/localrivet/auto/internal/agent"
+	"github.com/CastAIPhil/AUTO/internal/agent"
 )
 
 // SessionData represents the opencode session.json structure
@@ -77,8 +77,9 @@ type OpenCodeAgent struct {
 	name         string
 	directory    string
 	projectID    string
-	storagePath  string // Base storage path
-	sessionFile  string // Path to the session JSON file
+	parentID     string
+	storagePath  string
+	sessionFile  string
 	status       agent.Status
 	startTime    time.Time
 	lastActivity time.Time
@@ -89,6 +90,7 @@ type OpenCodeAgent struct {
 	mu           sync.RWMutex
 	sessionData  *SessionData
 	messages     []MessageData
+	loaded       bool
 }
 
 // NewOpenCodeAgent creates a new OpenCodeAgent from a session JSON file
@@ -112,6 +114,7 @@ func NewOpenCodeAgent(storagePath, sessionFilePath string) (*OpenCodeAgent, erro
 		name:         session.Title,
 		directory:    session.Directory,
 		projectID:    session.ProjectID,
+		parentID:     session.ParentID,
 		storagePath:  storagePath,
 		sessionFile:  sessionFilePath,
 		status:       agent.StatusIdle,
@@ -119,15 +122,10 @@ func NewOpenCodeAgent(storagePath, sessionFilePath string) (*OpenCodeAgent, erro
 		lastActivity: updatedAt,
 		output:       bytes.NewBuffer(nil),
 		sessionData:  &session,
+		loaded:       false,
 	}
 
-	// Load messages and determine status
-	if err := a.loadMessages(); err != nil {
-		// Non-fatal, continue with empty messages
-	}
-
-	a.determineStatus()
-	a.extractCurrentTask()
+	a.determineStatusFast()
 
 	return a, nil
 }
@@ -217,6 +215,32 @@ func (a *OpenCodeAgent) loadParts() {
 			a.output.WriteString("\n")
 		}
 	}
+}
+
+func (a *OpenCodeAgent) determineStatusFast() {
+	timeSinceUpdate := time.Since(a.lastActivity)
+
+	if timeSinceUpdate < 60*time.Second {
+		a.status = agent.StatusRunning
+	} else if timeSinceUpdate < 30*time.Minute {
+		a.status = agent.StatusIdle
+	} else {
+		a.status = agent.StatusCompleted
+	}
+}
+
+func (a *OpenCodeAgent) LoadFullHistory() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.loaded {
+		return
+	}
+
+	a.loadMessages()
+	a.determineStatus()
+	a.extractCurrentTask()
+	a.loaded = true
 }
 
 func (a *OpenCodeAgent) determineStatus() {
@@ -350,6 +374,14 @@ func (a *OpenCodeAgent) ProjectID() string {
 	return a.projectID
 }
 
+func (a *OpenCodeAgent) ParentID() string {
+	return a.parentID
+}
+
+func (a *OpenCodeAgent) IsBackground() bool {
+	return a.parentID != ""
+}
+
 // Status returns the current status
 func (a *OpenCodeAgent) Status() agent.Status {
 	a.mu.RLock()
@@ -369,9 +401,14 @@ func (a *OpenCodeAgent) LastActivity() time.Time {
 	return a.lastActivity
 }
 
-// Output returns the output stream
+// Output returns the output stream (lazy-loads history on first access)
 func (a *OpenCodeAgent) Output() io.Reader {
 	a.mu.RLock()
+	if !a.loaded {
+		a.mu.RUnlock()
+		a.LoadFullHistory()
+		a.mu.RLock()
+	}
 	defer a.mu.RUnlock()
 	return bytes.NewReader(a.output.Bytes())
 }
@@ -814,4 +851,46 @@ func (p *Provider) SendInput(id string, input string) error {
 	}
 
 	return a.SendInput(input)
+}
+
+// ListPrimary returns only primary agents (agents without a parent)
+func (p *Provider) ListPrimary() []agent.Agent {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	agents := make([]agent.Agent, 0)
+	for _, a := range p.agents {
+		if !a.IsBackground() {
+			agents = append(agents, a)
+		}
+	}
+	return agents
+}
+
+// GetChildren returns all child agents for a given parent ID
+func (p *Provider) GetChildren(parentID string) []agent.Agent {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	children := make([]agent.Agent, 0)
+	for _, a := range p.agents {
+		if a.ParentID() == parentID {
+			children = append(children, a)
+		}
+	}
+	return children
+}
+
+// ChildCount returns the number of child agents for a given parent ID
+func (p *Provider) ChildCount(parentID string) int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	count := 0
+	for _, a := range p.agents {
+		if a.ParentID() == parentID {
+			count++
+		}
+	}
+	return count
 }

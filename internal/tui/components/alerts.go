@@ -6,7 +6,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/localrivet/auto/internal/alert"
+	"github.com/CastAIPhil/AUTO/internal/alert"
 )
 
 // AlertsPanel displays alerts and notifications

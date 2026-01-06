@@ -66,6 +66,8 @@ func (h *HelpScreen) View() string {
 				{"k / up", "Move up"},
 				{"tab", "Switch pane"},
 				{"enter", "Select agent"},
+				{"c", "View child agents"},
+				{"backspace", "Go back to parent"},
 				{"g", "Cycle grouping mode"},
 			},
 		},
@@ -157,11 +159,12 @@ func (h *HelpScreen) SetSize(width, height int) {
 	h.height = height
 }
 
-// ShortHelp returns a short help string for the footer
 func ShortHelp(theme *Theme) string {
 	keys := []string{
 		"j/k: nav",
 		"enter: select",
+		"c: children",
+		"⌫: back",
 		"i: input",
 		"?: help",
 		"q: quit",

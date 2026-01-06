@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/localrivet/auto/internal/session"
+	"github.com/CastAIPhil/AUTO/internal/session"
 )
 
 // Server provides the HTTP API

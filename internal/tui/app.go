@@ -7,11 +7,11 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/localrivet/auto/internal/agent"
-	"github.com/localrivet/auto/internal/alert"
-	"github.com/localrivet/auto/internal/config"
-	"github.com/localrivet/auto/internal/session"
-	"github.com/localrivet/auto/internal/tui/components"
+	"github.com/CastAIPhil/AUTO/internal/agent"
+	"github.com/CastAIPhil/AUTO/internal/alert"
+	"github.com/CastAIPhil/AUTO/internal/config"
+	"github.com/CastAIPhil/AUTO/internal/session"
+	"github.com/CastAIPhil/AUTO/internal/tui/components"
 )
 
 type Theme = components.Theme

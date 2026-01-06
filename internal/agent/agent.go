@@ -89,6 +89,10 @@ type Agent interface {
 	Directory() string
 	ProjectID() string
 
+	// Hierarchy
+	ParentID() string
+	IsBackground() bool
+
 	// Status
 	Status() Status
 	StartTime() time.Time

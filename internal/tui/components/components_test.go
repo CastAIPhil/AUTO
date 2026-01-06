@@ -7,16 +7,16 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/localrivet/auto/internal/agent"
+	"github.com/CastAIPhil/AUTO/internal/agent"
 )
 
-// mockAgent implements agent.Agent for testing
 type mockAgent struct {
 	id           string
 	name         string
 	agentType    string
 	directory    string
 	projectID    string
+	parentID     string
 	status       agent.Status
 	startTime    time.Time
 	lastActivity time.Time
@@ -30,6 +30,8 @@ func (m *mockAgent) Name() string            { return m.name }
 func (m *mockAgent) Type() string            { return m.agentType }
 func (m *mockAgent) Directory() string       { return m.directory }
 func (m *mockAgent) ProjectID() string       { return m.projectID }
+func (m *mockAgent) ParentID() string        { return m.parentID }
+func (m *mockAgent) IsBackground() bool      { return m.parentID != "" }
 func (m *mockAgent) Status() agent.Status    { return m.status }
 func (m *mockAgent) StartTime() time.Time    { return m.startTime }
 func (m *mockAgent) LastActivity() time.Time { return m.lastActivity }
@@ -784,7 +786,7 @@ func TestShortHelp(t *testing.T) {
 		t.Error("ShortHelp should return non-empty string")
 	}
 
-	expectedKeys := []string{"j/k", "enter", "?", "q"}
+	expectedKeys := []string{"j/k", "enter", "children", "back", "?", "q"}
 	for _, key := range expectedKeys {
 		if !strings.Contains(help, key) {
 			t.Errorf("ShortHelp should contain %q", key)
@@ -872,7 +874,7 @@ func TestMessageTypes(t *testing.T) {
 
 func TestAgentItem(t *testing.T) {
 	mockAg := newMockAgent("test-id", "test-agent", agent.StatusRunning)
-	item := AgentItem{Agent: mockAg}
+	item := AgentItem{Agent: mockAg, ChildCount: 0}
 
 	if item.Title() != "test-agent" {
 		t.Errorf("Title() = %q, want test-agent", item.Title())
@@ -886,6 +888,12 @@ func TestAgentItem(t *testing.T) {
 	filterValue := item.FilterValue()
 	if !strings.Contains(filterValue, "test-agent") {
 		t.Error("FilterValue should contain agent name")
+	}
+
+	itemWithChildren := AgentItem{Agent: mockAg, ChildCount: 3}
+	titleWithChildren := itemWithChildren.Title()
+	if !strings.Contains(titleWithChildren, "[3]") {
+		t.Errorf("Title with children should contain [3], got %q", titleWithChildren)
 	}
 }
 

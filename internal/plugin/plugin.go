@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/localrivet/auto/internal/agent"
+	"github.com/CastAIPhil/AUTO/internal/agent"
 )
 
 // Info contains metadata about a plugin

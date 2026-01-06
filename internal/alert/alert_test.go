@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/localrivet/auto/internal/agent"
-	"github.com/localrivet/auto/internal/config"
+	"github.com/CastAIPhil/AUTO/internal/agent"
+	"github.com/CastAIPhil/AUTO/internal/config"
 )
 
 func TestNewManager(t *testing.T) {

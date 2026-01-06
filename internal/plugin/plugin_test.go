@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/localrivet/auto/internal/agent"
+	"github.com/CastAIPhil/AUTO/internal/agent"
 )
 
 // MockPlugin implements Plugin interface for testing

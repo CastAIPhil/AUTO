@@ -9,7 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/localrivet/auto/internal/agent"
+	"github.com/CastAIPhil/AUTO/internal/agent"
 )
 
 // SessionViewport displays agent session output

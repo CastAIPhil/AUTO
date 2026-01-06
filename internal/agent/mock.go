@@ -15,6 +15,7 @@ type MockAgent struct {
 	MockStatus       Status
 	MockDirectory    string
 	MockProjectID    string
+	MockParentID     string
 	MockCurrentTask  string
 	MockStartTime    time.Time
 	MockLastActivity time.Time
@@ -22,7 +23,6 @@ type MockAgent struct {
 	MockLastError    error
 	MockOutput       []byte
 
-	// Track method calls
 	TerminateCalled bool
 	SendInputCalled bool
 	LastInput       string
@@ -58,6 +58,8 @@ func (m *MockAgent) Type() string            { return m.MockType }
 func (m *MockAgent) Status() Status          { return m.MockStatus }
 func (m *MockAgent) Directory() string       { return m.MockDirectory }
 func (m *MockAgent) ProjectID() string       { return m.MockProjectID }
+func (m *MockAgent) ParentID() string        { return m.MockParentID }
+func (m *MockAgent) IsBackground() bool      { return m.MockParentID != "" }
 func (m *MockAgent) CurrentTask() string     { return m.MockCurrentTask }
 func (m *MockAgent) StartTime() time.Time    { return m.MockStartTime }
 func (m *MockAgent) LastActivity() time.Time { return m.MockLastActivity }

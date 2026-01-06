@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/localrivet/auto/internal/agent"
+	"github.com/CastAIPhil/AUTO/internal/agent"
 )
 
 // Helper to create a test storage structure with a session
@@ -132,9 +132,16 @@ func TestNewOpenCodeAgent(t *testing.T) {
 		t.Errorf("ProjectID() = %v, want %v", a.ProjectID(), "global")
 	}
 
-	// Status should be pending with no messages
+	// With lazy loading, initial status is based on session timestamps (fast path)
+	// A recently updated session shows as Running until full history is loaded
+	if a.Status() != agent.StatusRunning {
+		t.Errorf("Status() = %v, want %v (fast status for recent session)", a.Status(), agent.StatusRunning)
+	}
+
+	// After loading full history, status should be Pending (no messages)
+	a.LoadFullHistory()
 	if a.Status() != agent.StatusPending {
-		t.Errorf("Status() = %v, want %v", a.Status(), agent.StatusPending)
+		t.Errorf("Status() after LoadFullHistory = %v, want %v", a.Status(), agent.StatusPending)
 	}
 }
 
@@ -188,16 +195,16 @@ func TestOpenCodeAgent_StatusRunning(t *testing.T) {
 
 func TestOpenCodeAgent_StatusIdle(t *testing.T) {
 	now := time.Now()
-	storagePath := createTestStorage(t, "ses_test", "global", "Test", "/project", now, now)
+	idleTime := now.Add(-5 * time.Minute)
+	storagePath := createTestStorage(t, "ses_test", "global", "Test", "/project", now, idleTime)
 	sessionFile := getSessionFilePath(storagePath, "global", "ses_test")
 
-	// Add a message between 1 minute and 30 minutes old (idle threshold)
 	msg := MessageData{
 		ID:        "msg-1",
 		SessionID: "ses_test",
 		Role:      "user",
 	}
-	msg.Time.Created = now.Add(-5 * time.Minute).UnixMilli()
+	msg.Time.Created = idleTime.UnixMilli()
 	msg.Summary.Title = "Hello"
 	addTestMessage(t, storagePath, "ses_test", msg)
 
@@ -207,22 +214,22 @@ func TestOpenCodeAgent_StatusIdle(t *testing.T) {
 	}
 
 	if a.Status() != agent.StatusIdle {
-		t.Errorf("Status() = %v, want %v (recent message should indicate idle)", a.Status(), agent.StatusIdle)
+		t.Errorf("Status() = %v, want %v", a.Status(), agent.StatusIdle)
 	}
 }
 
 func TestOpenCodeAgent_StatusCompleted(t *testing.T) {
 	now := time.Now()
-	storagePath := createTestStorage(t, "ses_test", "global", "Test", "/project", now, now)
+	oldTime := now.Add(-1 * time.Hour)
+	storagePath := createTestStorage(t, "ses_test", "global", "Test", "/project", oldTime, oldTime)
 	sessionFile := getSessionFilePath(storagePath, "global", "ses_test")
 
-	// Add a message older than 30 minutes (historical/completed)
 	msg := MessageData{
 		ID:        "msg-1",
 		SessionID: "ses_test",
 		Role:      "user",
 	}
-	msg.Time.Created = now.Add(-1 * time.Hour).UnixMilli()
+	msg.Time.Created = oldTime.UnixMilli()
 	msg.Summary.Title = "Old task"
 	addTestMessage(t, storagePath, "ses_test", msg)
 
@@ -232,22 +239,22 @@ func TestOpenCodeAgent_StatusCompleted(t *testing.T) {
 	}
 
 	if a.Status() != agent.StatusCompleted {
-		t.Errorf("Status() = %v, want %v (old session should be completed/historical)", a.Status(), agent.StatusCompleted)
+		t.Errorf("Status() = %v, want %v", a.Status(), agent.StatusCompleted)
 	}
 }
 
 func TestOpenCodeAgent_StatusErrored(t *testing.T) {
 	now := time.Now()
-	storagePath := createTestStorage(t, "ses_test", "global", "Test", "/project", now, now)
+	errorTime := now.Add(-2 * time.Minute)
+	storagePath := createTestStorage(t, "ses_test", "global", "Test", "/project", now, errorTime)
 	sessionFile := getSessionFilePath(storagePath, "global", "ses_test")
 
-	// Add message
 	msg := MessageData{
 		ID:        "msg-1",
 		SessionID: "ses_test",
 		Role:      "user",
 	}
-	msg.Time.Created = now.Add(-2 * time.Minute).UnixMilli()
+	msg.Time.Created = errorTime.UnixMilli()
 	addTestMessage(t, storagePath, "ses_test", msg)
 
 	part := PartData{
@@ -257,7 +264,7 @@ func TestOpenCodeAgent_StatusErrored(t *testing.T) {
 		Type:      "tool-invocation",
 		State:     "error",
 	}
-	part.Time.Created = now.Add(-2 * time.Minute).UnixMilli()
+	part.Time.Created = errorTime.UnixMilli()
 	addTestPart(t, storagePath, "msg-1", part)
 
 	a, err := NewOpenCodeAgent(storagePath, sessionFile)
@@ -265,8 +272,9 @@ func TestOpenCodeAgent_StatusErrored(t *testing.T) {
 		t.Fatalf("NewOpenCodeAgent() error = %v", err)
 	}
 
+	a.LoadFullHistory()
 	if a.Status() != agent.StatusErrored {
-		t.Errorf("Status() = %v, want %v (error in part should indicate errored)", a.Status(), agent.StatusErrored)
+		t.Errorf("Status() = %v, want %v", a.Status(), agent.StatusErrored)
 	}
 }
 
@@ -289,6 +297,7 @@ func TestOpenCodeAgent_CurrentTask(t *testing.T) {
 		t.Fatalf("NewOpenCodeAgent() error = %v", err)
 	}
 
+	a.LoadFullHistory()
 	if a.CurrentTask() != "Please implement the new feature" {
 		t.Errorf("CurrentTask() = %v, want %v", a.CurrentTask(), "Please implement the new feature")
 	}
@@ -314,8 +323,9 @@ func TestOpenCodeAgent_CurrentTask_Truncated(t *testing.T) {
 		t.Fatalf("NewOpenCodeAgent() error = %v", err)
 	}
 
+	a.LoadFullHistory()
 	task := a.CurrentTask()
-	if len(task) > 103 { // 100 chars + "..."
+	if len(task) > 103 {
 		t.Errorf("CurrentTask() should be truncated, got length %d", len(task))
 	}
 	if len(task) > 3 && task[len(task)-3:] != "..." {
@@ -325,7 +335,8 @@ func TestOpenCodeAgent_CurrentTask_Truncated(t *testing.T) {
 
 func TestOpenCodeAgent_Refresh(t *testing.T) {
 	now := time.Now()
-	storagePath := createTestStorage(t, "ses_test", "global", "Test", "/project", now, now)
+	oldTime := now.Add(-1 * time.Hour)
+	storagePath := createTestStorage(t, "ses_test", "global", "Test", "/project", oldTime, oldTime)
 	sessionFile := getSessionFilePath(storagePath, "global", "ses_test")
 
 	a, err := NewOpenCodeAgent(storagePath, sessionFile)
@@ -333,12 +344,10 @@ func TestOpenCodeAgent_Refresh(t *testing.T) {
 		t.Fatalf("NewOpenCodeAgent() error = %v", err)
 	}
 
-	// Initially pending
-	if a.Status() != agent.StatusPending {
-		t.Errorf("Initial Status() = %v, want %v", a.Status(), agent.StatusPending)
+	if a.Status() != agent.StatusCompleted {
+		t.Errorf("Initial Status() = %v, want %v", a.Status(), agent.StatusCompleted)
 	}
 
-	// Add a message
 	msg := MessageData{
 		ID:        "msg-1",
 		SessionID: "ses_test",
@@ -348,7 +357,6 @@ func TestOpenCodeAgent_Refresh(t *testing.T) {
 	msg.Summary.Title = "Hello"
 	addTestMessage(t, storagePath, "ses_test", msg)
 
-	// Refresh and check status changed
 	if err := a.Refresh(); err != nil {
 		t.Errorf("Refresh() error = %v", err)
 	}

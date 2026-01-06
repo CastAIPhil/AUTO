@@ -1,4 +1,4 @@
-module github.com/localrivet/auto
+module github.com/CastAIPhil/AUTO
 
 go 1.25.1
 

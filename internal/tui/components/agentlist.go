@@ -10,17 +10,21 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/localrivet/auto/internal/agent"
-	"github.com/localrivet/auto/internal/session"
+	"github.com/CastAIPhil/AUTO/internal/agent"
+	"github.com/CastAIPhil/AUTO/internal/session"
 )
 
-// AgentItem represents an agent in the list
 type AgentItem struct {
-	Agent agent.Agent
+	Agent      agent.Agent
+	ChildCount int
 }
 
 func (i AgentItem) Title() string {
-	return i.Agent.Name()
+	name := i.Agent.Name()
+	if i.ChildCount > 0 {
+		return fmt.Sprintf("%s [%d]", name, i.ChildCount)
+	}
+	return name
 }
 
 func (i AgentItem) Description() string {
@@ -48,31 +52,39 @@ func (i AgentItem) FilterValue() string {
 	return i.Agent.Name() + " " + i.Agent.CurrentTask()
 }
 
-// AgentList is the agent list component
+type ViewMode string
+
+const (
+	ViewModePrimary  ViewMode = "primary"
+	ViewModeChildren ViewMode = "children"
+)
+
 type AgentList struct {
-	list      list.Model
-	theme     *Theme
-	manager   *session.Manager
-	groupMode session.GroupMode
-	focused   bool
-	width     int
-	height    int
-	selected  agent.Agent
+	list        list.Model
+	theme       *Theme
+	manager     *session.Manager
+	groupMode   session.GroupMode
+	focused     bool
+	width       int
+	height      int
+	selected    agent.Agent
+	viewMode    ViewMode
+	parentAgent agent.Agent
 }
 
-// AgentListKeyMap defines keybindings for the agent list
 type AgentListKeyMap struct {
-	Up          key.Binding
-	Down        key.Binding
-	Select      key.Binding
-	ToggleGroup key.Binding
-	Terminate   key.Binding
-	Pause       key.Binding
-	Filter      key.Binding
-	ClearFilter key.Binding
+	Up           key.Binding
+	Down         key.Binding
+	Select       key.Binding
+	ToggleGroup  key.Binding
+	Terminate    key.Binding
+	Pause        key.Binding
+	Filter       key.Binding
+	ClearFilter  key.Binding
+	ViewChildren key.Binding
+	GoBack       key.Binding
 }
 
-// DefaultAgentListKeyMap returns the default keybindings
 func DefaultAgentListKeyMap() AgentListKeyMap {
 	return AgentListKeyMap{
 		Up: key.NewBinding(
@@ -107,10 +119,17 @@ func DefaultAgentListKeyMap() AgentListKeyMap {
 			key.WithKeys("esc"),
 			key.WithHelp("esc", "clear filter"),
 		),
+		ViewChildren: key.NewBinding(
+			key.WithKeys("c"),
+			key.WithHelp("c", "view children"),
+		),
+		GoBack: key.NewBinding(
+			key.WithKeys("backspace"),
+			key.WithHelp("backspace", "go back"),
+		),
 	}
 }
 
-// NewAgentList creates a new agent list component
 func NewAgentList(theme *Theme, manager *session.Manager, width, height int) *AgentList {
 	delegate := list.NewDefaultDelegate()
 	delegate.Styles.SelectedTitle = theme.SelectedItemStyle
@@ -133,6 +152,7 @@ func NewAgentList(theme *Theme, manager *session.Manager, width, height int) *Ag
 		groupMode: session.GroupModeFlat,
 		width:     width,
 		height:    height,
+		viewMode:  ViewModePrimary,
 	}
 }
 
@@ -156,14 +176,12 @@ type AgentSelectedMsg struct {
 	Agent agent.Agent
 }
 
-// Update handles messages
 func (a *AgentList) Update(msg tea.Msg) (*AgentList, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if a.list.FilterState() == list.Filtering {
-			// Let the list handle filtering
 			break
 		}
 
@@ -177,6 +195,30 @@ func (a *AgentList) Update(msg tea.Msg) (*AgentList, tea.Cmd) {
 			if a.selected != nil {
 				a.manager.Terminate(a.selected.ID())
 				return a, a.refresh()
+			}
+
+		case key.Matches(msg, keys.ViewChildren):
+			if a.viewMode == ViewModePrimary && a.selected != nil {
+				childCount := a.manager.ChildCount(a.selected.ID())
+				if childCount > 0 {
+					a.parentAgent = a.selected
+					a.viewMode = ViewModeChildren
+					a.selected = nil
+					a.updateItems()
+					return a, nil
+				}
+			}
+
+		case key.Matches(msg, keys.GoBack):
+			if a.viewMode == ViewModeChildren {
+				a.viewMode = ViewModePrimary
+				a.selected = a.parentAgent
+				a.parentAgent = nil
+				a.updateItems()
+				if a.selected != nil {
+					a.SetSelected(a.selected.ID())
+				}
+				return a, nil
 			}
 
 		case key.Matches(msg, keys.Select):
@@ -193,7 +235,6 @@ func (a *AgentList) Update(msg tea.Msg) (*AgentList, tea.Cmd) {
 
 	case agent.Event:
 		a.updateItems()
-		// If the event is for the selected agent, send an update
 		if a.selected != nil && msg.AgentID == a.selected.ID() && msg.Agent != nil {
 			a.selected = msg.Agent
 			cmds = append(cmds, func() tea.Msg {
@@ -206,7 +247,6 @@ func (a *AgentList) Update(msg tea.Msg) (*AgentList, tea.Cmd) {
 	a.list, cmd = a.list.Update(msg)
 	cmds = append(cmds, cmd)
 
-	// Update selected agent from list
 	if item, ok := a.list.SelectedItem().(AgentItem); ok {
 		if a.selected == nil || a.selected.ID() != item.Agent.ID() {
 			a.selected = item.Agent
@@ -216,9 +256,14 @@ func (a *AgentList) Update(msg tea.Msg) (*AgentList, tea.Cmd) {
 	return a, tea.Batch(cmds...)
 }
 
-// updateItems updates the list items from the manager
 func (a *AgentList) updateItems() {
-	agents := a.manager.List()
+	var agents []agent.Agent
+
+	if a.viewMode == ViewModeChildren && a.parentAgent != nil {
+		agents = a.manager.GetChildren(a.parentAgent.ID())
+	} else {
+		agents = a.manager.ListPrimary()
+	}
 
 	sort.Slice(agents, func(i, j int) bool {
 		return agents[i].LastActivity().After(agents[j].LastActivity())
@@ -226,7 +271,11 @@ func (a *AgentList) updateItems() {
 
 	items := make([]list.Item, len(agents))
 	for i, ag := range agents {
-		items[i] = AgentItem{Agent: ag}
+		childCount := 0
+		if a.viewMode == ViewModePrimary {
+			childCount = a.manager.ChildCount(ag.ID())
+		}
+		items[i] = AgentItem{Agent: ag, ChildCount: childCount}
 	}
 
 	a.list.SetItems(items)
@@ -246,25 +295,34 @@ func (a *AgentList) cycleGroupMode() {
 	}
 }
 
-// View renders the agent list
 func (a *AgentList) View() string {
 	style := a.theme.AgentListStyle.Width(a.width).Height(a.height)
 	if a.focused {
 		style = a.theme.FocusedBorder(style)
 	}
 
-	// Build header with stats
-	stats := a.manager.Stats()
-	header := fmt.Sprintf("Agents (%d)", stats.Total)
-	if stats.ByStatus[agent.StatusRunning] > 0 {
-		header += fmt.Sprintf(" | %s %d running",
-			a.theme.StatusStyle(agent.StatusRunning).Render("●"),
-			stats.ByStatus[agent.StatusRunning])
-	}
-	if stats.ByStatus[agent.StatusErrored] > 0 {
-		header += fmt.Sprintf(" | %s %d errors",
-			a.theme.StatusStyle(agent.StatusErrored).Render("●"),
-			stats.ByStatus[agent.StatusErrored])
+	var header string
+	if a.viewMode == ViewModeChildren && a.parentAgent != nil {
+		childCount := len(a.list.Items())
+		parentName := a.parentAgent.Name()
+		if len(parentName) > 20 {
+			parentName = parentName[:20] + "..."
+		}
+		header = fmt.Sprintf("← %s (%d children)", parentName, childCount)
+	} else {
+		stats := a.manager.Stats()
+		primaryCount := len(a.manager.ListPrimary())
+		header = fmt.Sprintf("Agents (%d)", primaryCount)
+		if stats.ByStatus[agent.StatusRunning] > 0 {
+			header += fmt.Sprintf(" | %s %d running",
+				a.theme.StatusStyle(agent.StatusRunning).Render("●"),
+				stats.ByStatus[agent.StatusRunning])
+		}
+		if stats.ByStatus[agent.StatusErrored] > 0 {
+			header += fmt.Sprintf(" | %s %d errors",
+				a.theme.StatusStyle(agent.StatusErrored).Render("●"),
+				stats.ByStatus[agent.StatusErrored])
+		}
 	}
 
 	a.list.Title = header
@@ -315,9 +373,16 @@ func (a *AgentList) GroupMode() session.GroupMode {
 	return a.groupMode
 }
 
-// SetGroupMode sets the group mode
 func (a *AgentList) SetGroupMode(mode session.GroupMode) {
 	a.groupMode = mode
+}
+
+func (a *AgentList) ViewMode() ViewMode {
+	return a.viewMode
+}
+
+func (a *AgentList) ParentAgent() agent.Agent {
+	return a.parentAgent
 }
 
 // StatusIndicator returns a styled status indicator
