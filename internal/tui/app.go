@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/CastAIPhil/AUTO/internal/agent"
 	"github.com/CastAIPhil/AUTO/internal/alert"
 	"github.com/CastAIPhil/AUTO/internal/config"
 	"github.com/CastAIPhil/AUTO/internal/session"
 	"github.com/CastAIPhil/AUTO/internal/tui/components"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type Theme = components.Theme
@@ -50,6 +50,11 @@ type App struct {
 	ready       bool
 	ctx         context.Context
 	eventChan   chan agent.Event
+
+	// Streaming state
+	streamChan    <-chan agent.StreamEvent
+	streamAgentID string
+	streamCancel  func()
 }
 
 func NewTheme(cfg *config.ThemeConfig) *Theme {
@@ -133,6 +138,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch msg.String() {
 		case "q", "ctrl+c":
+			// If streaming, cancel instead of quitting
+			if a.isStreaming() {
+				a.cancelStreaming()
+				return a, nil
+			}
 			return a, tea.Quit
 
 		case "?":
@@ -206,7 +216,28 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.inputActive = false
 		a.input.Blur()
 		if selected := a.agentList.Selected(); selected != nil {
+			// Check if agent supports streaming
+			if streamingAgent, ok := selected.(agent.StreamingAgent); ok {
+				return a, a.startStreaming(streamingAgent, msg.Value)
+			}
+			// Fall back to non-streaming
 			a.manager.SendInput(selected.ID(), msg.Value)
+		}
+
+	case components.StreamEventMsg:
+		if a.viewport != nil {
+			var cmd tea.Cmd
+			a.viewport, cmd = a.viewport.Update(msg)
+			cmds = append(cmds, cmd)
+		}
+		// Check if stream is done
+		if msg.Event.Type == "done" || msg.Event.Type == "error" {
+			a.streamChan = nil
+			a.streamAgentID = ""
+			a.streamCancel = nil
+		} else {
+			// Continue listening for more events
+			cmds = append(cmds, a.waitForStreamEvents())
 		}
 
 	case components.ShowHelpMsg:
@@ -592,4 +623,88 @@ func (a *App) SetContext(ctx context.Context) {
 // EventChannel returns the event channel for pushing events
 func (a *App) EventChannel() chan<- agent.Event {
 	return a.eventChan
+}
+
+// startStreaming initiates streaming for a streaming-capable agent
+func (a *App) startStreaming(streamingAgent agent.StreamingAgent, input string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithCancel(a.ctx)
+		eventChan, err := streamingAgent.SendInputAsync(ctx, input)
+		if err != nil {
+			cancel()
+			// Return error as a stream event
+			return components.StreamEventMsg{
+				Event: agent.StreamEvent{
+					Type:  "error",
+					Error: err.Error(),
+				},
+				AgentID: streamingAgent.ID(),
+			}
+		}
+
+		a.streamChan = eventChan
+		a.streamAgentID = streamingAgent.ID()
+		a.streamCancel = cancel
+
+		// Clear any previous stream content in viewport
+		if a.viewport != nil {
+			a.viewport.ClearStreamContent()
+		}
+
+		// Return command to start reading events
+		return a.readNextStreamEvent()
+	}
+}
+
+// waitForStreamEvents returns a command to wait for the next stream event
+func (a *App) waitForStreamEvents() tea.Cmd {
+	return func() tea.Msg {
+		return a.readNextStreamEvent()
+	}
+}
+
+// readNextStreamEvent reads the next event from the stream channel
+func (a *App) readNextStreamEvent() tea.Msg {
+	if a.streamChan == nil {
+		return nil
+	}
+
+	select {
+	case event, ok := <-a.streamChan:
+		if !ok {
+			// Channel closed
+			return components.StreamEventMsg{
+				Event: agent.StreamEvent{
+					Type: "done",
+				},
+				AgentID: a.streamAgentID,
+			}
+		}
+		return components.StreamEventMsg{
+			Event:   event,
+			AgentID: a.streamAgentID,
+		}
+	default:
+		// No event ready, return nil and let tick retry
+		return nil
+	}
+}
+
+// isStreaming returns whether the app is currently streaming
+func (a *App) isStreaming() bool {
+	return a.streamChan != nil
+}
+
+// cancelStreaming cancels the current streaming operation
+func (a *App) cancelStreaming() {
+	if a.streamCancel != nil {
+		a.streamCancel()
+	}
+	a.streamChan = nil
+	a.streamAgentID = ""
+	a.streamCancel = nil
+
+	if a.viewport != nil {
+		a.viewport.ClearStreamContent()
+	}
 }

@@ -6,22 +6,24 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CastAIPhil/AUTO/internal/agent"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/CastAIPhil/AUTO/internal/agent"
 )
 
 // SessionViewport displays agent session output
 type SessionViewport struct {
-	viewport   viewport.Model
-	theme      *Theme
-	agent      agent.Agent
-	content    string
-	focused    bool
-	width      int
-	height     int
-	autoScroll bool
+	viewport      viewport.Model
+	theme         *Theme
+	agent         agent.Agent
+	content       string
+	streamContent strings.Builder
+	focused       bool
+	width         int
+	height        int
+	autoScroll    bool
+	isStreaming   bool
 }
 
 // NewSessionViewport creates a new session viewport
@@ -68,6 +70,9 @@ func (s *SessionViewport) Update(msg tea.Msg) (*SessionViewport, tea.Cmd) {
 
 	case ViewportRefreshMsg:
 		s.updateContent()
+
+	case StreamEventMsg:
+		return s, s.handleStreamEvent(msg)
 	}
 
 	// Update viewport
@@ -200,7 +205,18 @@ func (s *SessionViewport) renderHeader() string {
 		task = task[:50] + "..."
 	}
 
-	return s.theme.Header.Render(fmt.Sprintf("%s %s - %s", status, name, task))
+	header := fmt.Sprintf("%s %s - %s", status, name, task)
+
+	// Add streaming indicator
+	if s.isStreaming {
+		streamIndicator := lipgloss.NewStyle().
+			Foreground(s.theme.StatusRunning).
+			Bold(true).
+			Render(" ● STREAMING")
+		header = header + streamIndicator
+	}
+
+	return s.theme.Header.Render(header)
 }
 
 // renderFooter renders the viewport footer
@@ -271,6 +287,65 @@ func (s *SessionViewport) ScrollToBottom() {
 // SetAutoScroll sets the auto-scroll state
 func (s *SessionViewport) SetAutoScroll(enabled bool) {
 	s.autoScroll = enabled
+}
+
+// handleStreamEvent processes a streaming event
+func (s *SessionViewport) handleStreamEvent(msg StreamEventMsg) tea.Cmd {
+	event := msg.Event
+
+	switch event.Type {
+	case "text":
+		s.isStreaming = true
+		s.streamContent.WriteString(event.Text)
+		// Update viewport content with stream
+		combined := s.content + "\n" + s.streamContent.String()
+		s.viewport.SetContent(s.formatContent(combined))
+		if s.autoScroll {
+			s.viewport.GotoBottom()
+		}
+
+	case "tool-start":
+		s.isStreaming = true
+		s.streamContent.WriteString(fmt.Sprintf("\n[Tool: %s]\n", event.ToolName))
+		combined := s.content + "\n" + s.streamContent.String()
+		s.viewport.SetContent(s.formatContent(combined))
+		if s.autoScroll {
+			s.viewport.GotoBottom()
+		}
+
+	case "tool-end":
+		s.streamContent.WriteString(fmt.Sprintf("[/%s: %s]\n", event.ToolName, event.State))
+		combined := s.content + "\n" + s.streamContent.String()
+		s.viewport.SetContent(s.formatContent(combined))
+		if s.autoScroll {
+			s.viewport.GotoBottom()
+		}
+
+	case "done", "error":
+		s.isStreaming = false
+		// Merge stream content into main content
+		if s.streamContent.Len() > 0 {
+			s.content = s.content + "\n" + s.streamContent.String()
+			s.streamContent.Reset()
+		}
+		s.viewport.SetContent(s.formatContent(s.content))
+		if s.autoScroll {
+			s.viewport.GotoBottom()
+		}
+	}
+
+	return nil
+}
+
+// ClearStreamContent clears the streaming buffer
+func (s *SessionViewport) ClearStreamContent() {
+	s.streamContent.Reset()
+	s.isStreaming = false
+}
+
+// IsStreaming returns whether the viewport is currently streaming
+func (s *SessionViewport) IsStreaming() bool {
+	return s.isStreaming
 }
 
 // FormatDuration formats a duration for display

@@ -167,6 +167,25 @@ type Event struct {
 	Error     error
 }
 
+type StreamEvent struct {
+	Type      string
+	AgentID   string
+	SessionID string
+	MessageID string
+	Text      string
+	ToolName  string
+	State     string
+	Error     string
+	Timestamp time.Time
+}
+
+type StreamingAgent interface {
+	Agent
+	SendInputAsync(ctx context.Context, input string) (<-chan StreamEvent, error)
+	IsExecuting() bool
+	CancelExecution()
+}
+
 // SpawnConfig holds configuration for spawning a new agent
 type SpawnConfig struct {
 	Type      string            `json:"type"`

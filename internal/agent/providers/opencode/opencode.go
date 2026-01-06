@@ -16,8 +16,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fsnotify/fsnotify"
 	"github.com/CastAIPhil/AUTO/internal/agent"
+	"github.com/fsnotify/fsnotify"
 )
 
 // SessionData represents the opencode session.json structure
@@ -92,6 +92,9 @@ type OpenCodeAgent struct {
 	sessionData  *SessionData
 	messages     []MessageData
 	loaded       bool
+
+	activeRunner *Runner
+	runnerCancel context.CancelFunc
 }
 
 // NewOpenCodeAgent creates a new OpenCodeAgent from a session JSON file
@@ -490,6 +493,132 @@ func (a *OpenCodeAgent) Resume() error {
 	return fmt.Errorf("resume not supported for opencode sessions")
 }
 
+func (a *OpenCodeAgent) SendInputAsync(ctx context.Context, input string) (<-chan agent.StreamEvent, error) {
+	if input == "" {
+		return nil, fmt.Errorf("empty input")
+	}
+
+	a.mu.Lock()
+	if a.activeRunner != nil && a.activeRunner.IsRunning() {
+		a.mu.Unlock()
+		return nil, fmt.Errorf("agent is already executing a command")
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	a.runnerCancel = cancel
+
+	runner, err := NewRunner(ctx, RunConfig{
+		SessionID: a.id,
+		Directory: a.directory,
+		Message:   input,
+	})
+	if err != nil {
+		cancel()
+		a.mu.Unlock()
+		return nil, fmt.Errorf("failed to create runner: %w", err)
+	}
+
+	a.activeRunner = runner
+	a.status = agent.StatusRunning
+	a.currentTask = input
+	if len(a.currentTask) > 100 {
+		a.currentTask = a.currentTask[:100] + "..."
+	}
+	a.mu.Unlock()
+
+	if err := runner.Start(); err != nil {
+		a.mu.Lock()
+		a.activeRunner = nil
+		a.status = agent.StatusIdle
+		a.mu.Unlock()
+		return nil, fmt.Errorf("failed to start runner: %w", err)
+	}
+
+	events := make(chan agent.StreamEvent, 100)
+
+	go func() {
+		defer close(events)
+		defer func() {
+			a.mu.Lock()
+			a.activeRunner = nil
+			a.status = agent.StatusIdle
+			a.lastActivity = time.Now()
+			a.mu.Unlock()
+		}()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-runner.Done():
+				return
+			case event, ok := <-runner.Events():
+				if !ok {
+					return
+				}
+
+				streamEvent := agent.StreamEvent{
+					Type:      event.Type,
+					AgentID:   a.id,
+					SessionID: event.SessionID,
+					MessageID: event.MessageID,
+					Text:      event.Text,
+					ToolName:  event.ToolName,
+					State:     event.State,
+					Error:     event.Error,
+					Timestamp: time.Now(),
+				}
+
+				if event.Text != "" {
+					a.mu.Lock()
+					a.output.WriteString(event.Text)
+					a.lastActivity = time.Now()
+					a.mu.Unlock()
+				}
+
+				select {
+				case events <- streamEvent:
+				case <-ctx.Done():
+					return
+				}
+			case err, ok := <-runner.Errors():
+				if ok && err != nil {
+					a.mu.Lock()
+					a.lastError = err
+					a.status = agent.StatusErrored
+					a.mu.Unlock()
+
+					events <- agent.StreamEvent{
+						Type:      "error",
+						AgentID:   a.id,
+						Error:     err.Error(),
+						Timestamp: time.Now(),
+					}
+				}
+			}
+		}
+	}()
+
+	return events, nil
+}
+
+func (a *OpenCodeAgent) IsExecuting() bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.activeRunner != nil && a.activeRunner.IsRunning()
+}
+
+func (a *OpenCodeAgent) CancelExecution() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.runnerCancel != nil {
+		a.runnerCancel()
+	}
+	if a.activeRunner != nil {
+		a.activeRunner.Stop()
+	}
+}
+
 // Provider implements the agent.Provider interface for opencode
 type Provider struct {
 	storagePath   string
@@ -786,31 +915,59 @@ func (p *Provider) refreshAll(events chan<- agent.Event) {
 
 // Spawn spawns a new opencode session
 func (p *Provider) Spawn(ctx context.Context, config agent.SpawnConfig) (agent.Agent, error) {
-	// Create a new opencode session by running opencode in the specified directory
-	cmd := exec.CommandContext(ctx, "opencode")
-	cmd.Dir = config.Directory
-
-	// Set environment
-	cmd.Env = os.Environ()
-	for k, v := range config.Env {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+	prompt := config.Prompt
+	if prompt == "" {
+		prompt = "Hello, start a new session"
 	}
 
-	// Start the process in background
-	if err := cmd.Start(); err != nil {
+	runner, err := NewRunner(ctx, RunConfig{
+		Directory: config.Directory,
+		Message:   prompt,
+		Title:     config.Name,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create runner: %w", err)
+	}
+
+	if err := runner.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start opencode: %w", err)
 	}
 
-	// Wait a moment for the session to be created
-	time.Sleep(500 * time.Millisecond)
+	var sessionID string
+	timeout := time.After(30 * time.Second)
 
-	// Re-discover to find the new session
+	for sessionID == "" {
+		select {
+		case <-timeout:
+			runner.Stop()
+			return nil, fmt.Errorf("timeout waiting for session creation")
+		case <-runner.Done():
+			sessionID = runner.SessionID()
+			if sessionID == "" {
+				return nil, fmt.Errorf("session completed without creating session ID")
+			}
+		case event := <-runner.Events():
+			if event.SessionID != "" {
+				sessionID = event.SessionID
+			}
+		case err := <-runner.Errors():
+			return nil, fmt.Errorf("opencode error: %w", err)
+		}
+	}
+
+	runner.Wait()
+
 	agents, err := p.Discover(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	// Return the most recently created agent
+	for _, a := range agents {
+		if a.ID() == sessionID {
+			return a, nil
+		}
+	}
+
 	var newest agent.Agent
 	var newestTime time.Time
 	for _, a := range agents {
@@ -825,6 +982,84 @@ func (p *Provider) Spawn(ctx context.Context, config agent.SpawnConfig) (agent.A
 	}
 
 	return newest, nil
+}
+
+func (p *Provider) SpawnAsync(ctx context.Context, config agent.SpawnConfig) (<-chan agent.StreamEvent, <-chan agent.Agent, error) {
+	prompt := config.Prompt
+	if prompt == "" {
+		prompt = "Hello, start a new session"
+	}
+
+	runner, err := NewRunner(ctx, RunConfig{
+		Directory: config.Directory,
+		Message:   prompt,
+		Title:     config.Name,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create runner: %w", err)
+	}
+
+	if err := runner.Start(); err != nil {
+		return nil, nil, fmt.Errorf("failed to start opencode: %w", err)
+	}
+
+	events := make(chan agent.StreamEvent, 100)
+	result := make(chan agent.Agent, 1)
+
+	go func() {
+		defer close(events)
+		defer close(result)
+
+		var sessionID string
+
+		for {
+			select {
+			case <-ctx.Done():
+				runner.Stop()
+				return
+			case <-runner.Done():
+				if sessionID != "" {
+					agents, err := p.Discover(ctx)
+					if err == nil {
+						for _, a := range agents {
+							if a.ID() == sessionID {
+								result <- a
+								return
+							}
+						}
+					}
+				}
+				return
+			case event, ok := <-runner.Events():
+				if !ok {
+					return
+				}
+				if event.SessionID != "" && sessionID == "" {
+					sessionID = event.SessionID
+				}
+				events <- agent.StreamEvent{
+					Type:      event.Type,
+					SessionID: event.SessionID,
+					MessageID: event.MessageID,
+					Text:      event.Text,
+					ToolName:  event.ToolName,
+					State:     event.State,
+					Error:     event.Error,
+					Timestamp: time.Now(),
+				}
+			case err, ok := <-runner.Errors():
+				if ok && err != nil {
+					events <- agent.StreamEvent{
+						Type:      "error",
+						Error:     err.Error(),
+						Timestamp: time.Now(),
+					}
+				}
+			}
+		}
+	}()
+
+	return events, result, nil
 }
 
 // Get returns an agent by ID

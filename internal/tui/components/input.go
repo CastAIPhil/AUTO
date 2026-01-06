@@ -1,6 +1,7 @@
 package components
 
 import (
+	"github.com/CastAIPhil/AUTO/internal/agent"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -68,6 +69,11 @@ func (i *InputBar) Update(msg tea.Msg) (*InputBar, tea.Cmd) {
 // InputSubmitMsg is sent when input is submitted
 type InputSubmitMsg struct {
 	Value string
+}
+
+type StreamEventMsg struct {
+	Event   agent.StreamEvent
+	AgentID string
 }
 
 // View renders the input bar
