@@ -102,4 +102,4 @@ go build -o auto ./cmd/auto
 
 ## License
 
-MIT
+Apache 2.0
