@@ -512,25 +512,18 @@ func (p *Provider) Type() string {
 	return "opencode"
 }
 
-// Discover discovers all opencode sessions
 func (p *Provider) Discover(ctx context.Context) ([]agent.Agent, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	// Clear existing agents
-	p.agents = make(map[string]*OpenCodeAgent)
-
-	// Sessions are stored in storage/session/<project-id>/*.json
 	sessionBasePath := filepath.Join(p.storagePath, "session")
 	projectDirs, err := os.ReadDir(sessionBasePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil // No sessions yet
+			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to read session directory: %w", err)
 	}
 
-	var agents []agent.Agent
+	var sessionPaths []string
+	cutoff := time.Now().Add(-p.maxAge)
 
 	for _, projectDir := range projectDirs {
 		if !projectDir.IsDir() {
@@ -548,20 +541,63 @@ func (p *Provider) Discover(ctx context.Context) ([]agent.Agent, error) {
 				continue
 			}
 
-			sessionFilePath := filepath.Join(projectPath, sessionFile.Name())
-			a, err := NewOpenCodeAgent(p.storagePath, sessionFilePath)
-			if err != nil {
-				continue // Skip invalid sessions
+			if p.maxAge > 0 {
+				info, err := sessionFile.Info()
+				if err != nil || info.ModTime().Before(cutoff) {
+					continue
+				}
 			}
 
-			if p.maxAge > 0 && time.Since(a.LastActivity()) > p.maxAge {
-				continue
-			}
-
-			p.agents[a.ID()] = a
-			agents = append(agents, a)
+			sessionPaths = append(sessionPaths, filepath.Join(projectPath, sessionFile.Name()))
 		}
 	}
+
+	type result struct {
+		agent *OpenCodeAgent
+		err   error
+	}
+
+	numWorkers := 10
+	if len(sessionPaths) < numWorkers {
+		numWorkers = len(sessionPaths)
+	}
+	if numWorkers == 0 {
+		return nil, nil
+	}
+
+	pathChan := make(chan string, len(sessionPaths))
+	resultChan := make(chan result, len(sessionPaths))
+
+	for i := 0; i < numWorkers; i++ {
+		go func() {
+			for path := range pathChan {
+				a, err := NewOpenCodeAgent(p.storagePath, path)
+				resultChan <- result{agent: a, err: err}
+			}
+		}()
+	}
+
+	for _, path := range sessionPaths {
+		pathChan <- path
+	}
+	close(pathChan)
+
+	p.mu.Lock()
+	p.agents = make(map[string]*OpenCodeAgent)
+	var agents []agent.Agent
+
+	for i := 0; i < len(sessionPaths); i++ {
+		r := <-resultChan
+		if r.err != nil || r.agent == nil {
+			continue
+		}
+		if p.maxAge > 0 && time.Since(r.agent.LastActivity()) > p.maxAge {
+			continue
+		}
+		p.agents[r.agent.ID()] = r.agent
+		agents = append(agents, r.agent)
+	}
+	p.mu.Unlock()
 
 	return agents, nil
 }
