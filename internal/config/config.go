@@ -19,6 +19,20 @@ type Config struct {
 	Keys      KeysConfig      `yaml:"keys"`
 	Storage   StorageConfig   `yaml:"storage"`
 	Metrics   MetricsConfig   `yaml:"metrics"`
+	Plugins   PluginsConfig   `yaml:"plugins"`
+	API       APIConfig       `yaml:"api"`
+}
+
+// PluginsConfig holds plugin settings
+type PluginsConfig struct {
+	Dir     string   `yaml:"dir"`
+	Enabled []string `yaml:"enabled"`
+}
+
+// APIConfig holds HTTP API settings
+type APIConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Address string `yaml:"address"`
 }
 
 // GeneralConfig holds general settings
@@ -180,6 +194,14 @@ func DefaultConfig() *Config {
 		Metrics: MetricsConfig{
 			TokenCostInput:  0.003, // $3 per 1M tokens
 			TokenCostOutput: 0.015, // $15 per 1M tokens
+		},
+		Plugins: PluginsConfig{
+			Dir:     "",
+			Enabled: nil,
+		},
+		API: APIConfig{
+			Enabled: false,
+			Address: ":8080",
 		},
 	}
 }

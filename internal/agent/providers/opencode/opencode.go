@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -20,21 +21,54 @@ import (
 
 // SessionData represents the opencode session.json structure
 type SessionData struct {
-	ID        string    `json:"id"`
-	Path      string    `json:"path"`
-	Title     string    `json:"title"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID        string `json:"id"`
+	Version   string `json:"version"`
+	ProjectID string `json:"projectID"`
+	Directory string `json:"directory"`
+	ParentID  string `json:"parentID,omitempty"`
+	Title     string `json:"title"`
+	Time      struct {
+		Created int64 `json:"created"` // Unix timestamp in milliseconds
+		Updated int64 `json:"updated"` // Unix timestamp in milliseconds
+	} `json:"time"`
+	Summary struct {
+		Additions int `json:"additions"`
+		Deletions int `json:"deletions"`
+		Files     int `json:"files"`
+	} `json:"summary"`
 }
 
 // MessageData represents a message in the session
 type MessageData struct {
-	ID        string                 `json:"id"`
-	SessionID string                 `json:"sessionId"`
-	Role      string                 `json:"role"`
-	Content   string                 `json:"content"`
-	CreatedAt time.Time              `json:"createdAt"`
-	Metadata  map[string]interface{} `json:"metadata,omitempty"`
+	ID        string `json:"id"`
+	SessionID string `json:"sessionID"`
+	Role      string `json:"role"`
+	Time      struct {
+		Created int64 `json:"created"` // Unix timestamp in milliseconds
+	} `json:"time"`
+	Summary struct {
+		Title string `json:"title"`
+	} `json:"summary"`
+	Agent string `json:"agent,omitempty"`
+	Model struct {
+		ProviderID string `json:"providerID"`
+		ModelID    string `json:"modelID"`
+	} `json:"model,omitempty"`
+}
+
+// PartData represents a message part (content, tool calls, etc.)
+type PartData struct {
+	ID        string `json:"id"`
+	MessageID string `json:"messageID"`
+	SessionID string `json:"sessionID"`
+	Type      string `json:"type"` // "text", "tool-invocation", etc.
+	Time      struct {
+		Created int64 `json:"created"`
+	} `json:"time"`
+	Text       string `json:"text,omitempty"`
+	ToolName   string `json:"toolName,omitempty"`
+	ToolCallID string `json:"toolCallId,omitempty"`
+	State      string `json:"state,omitempty"` // "running", "success", "error"
 }
 
 // OpenCodeAgent implements the Agent interface for opencode sessions
@@ -43,7 +77,8 @@ type OpenCodeAgent struct {
 	name         string
 	directory    string
 	projectID    string
-	storagePath  string
+	storagePath  string // Base storage path
+	sessionFile  string // Path to the session JSON file
 	status       agent.Status
 	startTime    time.Time
 	lastActivity time.Time
@@ -56,28 +91,32 @@ type OpenCodeAgent struct {
 	messages     []MessageData
 }
 
-// NewOpenCodeAgent creates a new OpenCodeAgent from a session directory
-func NewOpenCodeAgent(sessionPath string) (*OpenCodeAgent, error) {
-	sessionFile := filepath.Join(sessionPath, "session.json")
-	data, err := os.ReadFile(sessionFile)
+// NewOpenCodeAgent creates a new OpenCodeAgent from a session JSON file
+func NewOpenCodeAgent(storagePath, sessionFilePath string) (*OpenCodeAgent, error) {
+	data, err := os.ReadFile(sessionFilePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read session.json: %w", err)
+		return nil, fmt.Errorf("failed to read session file: %w", err)
 	}
 
 	var session SessionData
 	if err := json.Unmarshal(data, &session); err != nil {
-		return nil, fmt.Errorf("failed to parse session.json: %w", err)
+		return nil, fmt.Errorf("failed to parse session file: %w", err)
 	}
+
+	// Convert millisecond timestamps to time.Time
+	createdAt := time.UnixMilli(session.Time.Created)
+	updatedAt := time.UnixMilli(session.Time.Updated)
 
 	a := &OpenCodeAgent{
 		id:           session.ID,
 		name:         session.Title,
-		directory:    session.Path,
-		projectID:    filepath.Base(session.Path),
-		storagePath:  sessionPath,
+		directory:    session.Directory,
+		projectID:    session.ProjectID,
+		storagePath:  storagePath,
+		sessionFile:  sessionFilePath,
 		status:       agent.StatusIdle,
-		startTime:    session.CreatedAt,
-		lastActivity: session.UpdatedAt,
+		startTime:    createdAt,
+		lastActivity: updatedAt,
 		output:       bytes.NewBuffer(nil),
 		sessionData:  &session,
 	}
@@ -95,7 +134,8 @@ func NewOpenCodeAgent(sessionPath string) (*OpenCodeAgent, error) {
 
 // loadMessages loads messages from the messages directory
 func (a *OpenCodeAgent) loadMessages() error {
-	messagesPath := filepath.Join(a.storagePath, "messages")
+	// Messages are stored in storage/message/<session-id>/
+	messagesPath := filepath.Join(a.storagePath, "message", a.id)
 	entries, err := os.ReadDir(messagesPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -121,66 +161,111 @@ func (a *OpenCodeAgent) loadMessages() error {
 		}
 
 		a.messages = append(a.messages, msg)
-
-		// Update metrics from messages
-		if msg.Metadata != nil {
-			if tokens, ok := msg.Metadata["tokens"].(map[string]interface{}); ok {
-				if in, ok := tokens["input"].(float64); ok {
-					a.metrics.TokensIn += int64(in)
-				}
-				if out, ok := tokens["output"].(float64); ok {
-					a.metrics.TokensOut += int64(out)
-				}
-			}
-		}
-
-		// Append content to output buffer
-		if msg.Role == "assistant" {
-			a.output.WriteString(msg.Content)
-			a.output.WriteString("\n")
-		}
 	}
+
+	// Sort messages by creation time
+	sort.Slice(a.messages, func(i, j int) bool {
+		return a.messages[i].Time.Created < a.messages[j].Time.Created
+	})
+
+	// Load parts to get actual content and token metrics
+	a.loadParts()
 
 	return nil
 }
 
-// determineStatus determines the agent's current status
+func (a *OpenCodeAgent) loadParts() {
+	type partWithTime struct {
+		part PartData
+		time int64
+	}
+	var allParts []partWithTime
+
+	for _, msg := range a.messages {
+		partsPath := filepath.Join(a.storagePath, "part", msg.ID)
+		entries, err := os.ReadDir(partsPath)
+		if err != nil {
+			continue
+		}
+
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+				continue
+			}
+
+			data, err := os.ReadFile(filepath.Join(partsPath, entry.Name()))
+			if err != nil {
+				continue
+			}
+
+			var part PartData
+			if err := json.Unmarshal(data, &part); err != nil {
+				continue
+			}
+
+			allParts = append(allParts, partWithTime{part: part, time: part.Time.Created})
+		}
+	}
+
+	sort.Slice(allParts, func(i, j int) bool {
+		return allParts[i].time < allParts[j].time
+	})
+
+	for _, p := range allParts {
+		if p.part.Type == "text" && p.part.Text != "" {
+			a.output.WriteString(p.part.Text)
+			a.output.WriteString("\n")
+		}
+	}
+}
+
 func (a *OpenCodeAgent) determineStatus() {
 	if len(a.messages) == 0 {
 		a.status = agent.StatusPending
 		return
 	}
 
-	// Check the last message
 	lastMsg := a.messages[len(a.messages)-1]
+	lastMsgTime := time.UnixMilli(lastMsg.Time.Created)
+	timeSinceLastActivity := time.Since(lastMsgTime)
 
-	// If last message is from user and recent, agent is probably running
-	timeSinceLastActivity := time.Since(lastMsg.CreatedAt)
-
-	if timeSinceLastActivity < 30*time.Second {
-		a.status = agent.StatusRunning
-	} else if timeSinceLastActivity < 5*time.Minute {
-		a.status = agent.StatusIdle
-	} else {
-		// Check for completion indicators in last assistant message
-		for i := len(a.messages) - 1; i >= 0; i-- {
-			if a.messages[i].Role == "assistant" {
-				content := strings.ToLower(a.messages[i].Content)
-				if strings.Contains(content, "error") || strings.Contains(content, "failed") {
-					a.status = agent.StatusErrored
-					return
-				}
-				if strings.Contains(content, "complete") || strings.Contains(content, "done") {
-					a.status = agent.StatusCompleted
-					return
-				}
-				break
+	for _, msg := range a.messages {
+		partsPath := filepath.Join(a.storagePath, "part", msg.ID)
+		entries, _ := os.ReadDir(partsPath)
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+				continue
+			}
+			data, err := os.ReadFile(filepath.Join(partsPath, entry.Name()))
+			if err != nil {
+				continue
+			}
+			var part PartData
+			if err := json.Unmarshal(data, &part); err != nil {
+				continue
+			}
+			if part.State == "running" {
+				a.status = agent.StatusRunning
+				a.lastActivity = time.Now()
+				return
+			}
+			if part.State == "error" && timeSinceLastActivity < 5*time.Minute {
+				a.status = agent.StatusErrored
+				a.lastActivity = time.UnixMilli(part.Time.Created)
+				return
 			}
 		}
-		a.status = agent.StatusIdle
 	}
 
-	a.lastActivity = lastMsg.CreatedAt
+	if timeSinceLastActivity < 60*time.Second {
+		a.status = agent.StatusRunning
+	} else if timeSinceLastActivity < 30*time.Minute {
+		a.status = agent.StatusIdle
+	} else {
+		a.status = agent.StatusCompleted
+	}
+
+	a.lastActivity = lastMsgTime
 }
 
 // extractCurrentTask extracts the current task from messages
@@ -188,11 +273,14 @@ func (a *OpenCodeAgent) extractCurrentTask() {
 	// Look for the last user message as the current task
 	for i := len(a.messages) - 1; i >= 0; i-- {
 		if a.messages[i].Role == "user" {
-			task := a.messages[i].Content
+			task := a.messages[i].Summary.Title
+			if task == "" {
+				task = "Working..."
+			}
 			if len(task) > 100 {
 				task = task[:100] + "..."
 			}
-			a.currentTask = task
+			a.currentTask = strings.TrimSpace(task)
 			return
 		}
 	}
@@ -203,6 +291,22 @@ func (a *OpenCodeAgent) Refresh() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
+	// Re-read session file
+	data, err := os.ReadFile(a.sessionFile)
+	if err != nil {
+		return err
+	}
+
+	var session SessionData
+	if err := json.Unmarshal(data, &session); err != nil {
+		return err
+	}
+	a.sessionData = &session
+	a.name = session.Title
+	a.lastActivity = time.UnixMilli(session.Time.Updated)
+
+	// Clear and reload
+	a.output.Reset()
 	if err := a.loadMessages(); err != nil {
 		return err
 	}
@@ -223,7 +327,10 @@ func (a *OpenCodeAgent) Name() string {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	if a.name == "" {
-		return a.id[:8] // Short ID as fallback
+		if len(a.id) > 8 {
+			return a.id[:8]
+		}
+		return a.id
 	}
 	return a.name
 }
@@ -351,36 +458,43 @@ func (p *Provider) Discover(ctx context.Context) ([]agent.Agent, error) {
 	// Clear existing agents
 	p.agents = make(map[string]*OpenCodeAgent)
 
-	// List all session directories
-	entries, err := os.ReadDir(p.storagePath)
+	// Sessions are stored in storage/session/<project-id>/*.json
+	sessionBasePath := filepath.Join(p.storagePath, "session")
+	projectDirs, err := os.ReadDir(sessionBasePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil // No sessions yet
 		}
-		return nil, fmt.Errorf("failed to read storage directory: %w", err)
+		return nil, fmt.Errorf("failed to read session directory: %w", err)
 	}
 
 	var agents []agent.Agent
-	for _, entry := range entries {
-		if !entry.IsDir() {
+
+	for _, projectDir := range projectDirs {
+		if !projectDir.IsDir() {
 			continue
 		}
 
-		sessionPath := filepath.Join(p.storagePath, entry.Name())
-		sessionFile := filepath.Join(sessionPath, "session.json")
-
-		// Check if session.json exists
-		if _, err := os.Stat(sessionFile); os.IsNotExist(err) {
-			continue
-		}
-
-		a, err := NewOpenCodeAgent(sessionPath)
+		projectPath := filepath.Join(sessionBasePath, projectDir.Name())
+		sessionFiles, err := os.ReadDir(projectPath)
 		if err != nil {
-			continue // Skip invalid sessions
+			continue
 		}
 
-		p.agents[a.ID()] = a
-		agents = append(agents, a)
+		for _, sessionFile := range sessionFiles {
+			if sessionFile.IsDir() || !strings.HasSuffix(sessionFile.Name(), ".json") {
+				continue
+			}
+
+			sessionFilePath := filepath.Join(projectPath, sessionFile.Name())
+			a, err := NewOpenCodeAgent(p.storagePath, sessionFilePath)
+			if err != nil {
+				continue // Skip invalid sessions
+			}
+
+			p.agents[a.ID()] = a
+			agents = append(agents, a)
+		}
 	}
 
 	return agents, nil
@@ -397,17 +511,27 @@ func (p *Provider) Watch(ctx context.Context) (<-chan agent.Event, error) {
 	}
 	p.watcher = watcher
 
-	// Watch the storage directory
-	if err := watcher.Add(p.storagePath); err != nil {
-		watcher.Close()
-		return nil, fmt.Errorf("failed to watch storage directory: %w", err)
+	// Watch the session directories
+	sessionBasePath := filepath.Join(p.storagePath, "session")
+	if err := watcher.Add(sessionBasePath); err != nil {
+		// Directory might not exist yet
 	}
 
-	// Watch existing session directories
+	// Watch project directories
+	projectDirs, _ := os.ReadDir(sessionBasePath)
+	for _, projectDir := range projectDirs {
+		if projectDir.IsDir() {
+			watcher.Add(filepath.Join(sessionBasePath, projectDir.Name()))
+		}
+	}
+
+	// Watch message directories for existing sessions
 	p.mu.RLock()
 	for _, a := range p.agents {
-		watcher.Add(a.storagePath)
-		watcher.Add(filepath.Join(a.storagePath, "messages"))
+		msgPath := filepath.Join(p.storagePath, "message", a.ID())
+		watcher.Add(msgPath)
+		partPath := filepath.Join(p.storagePath, "part", a.ID())
+		watcher.Add(partPath)
 	}
 	p.mu.RUnlock()
 
@@ -451,10 +575,9 @@ func (p *Provider) Watch(ctx context.Context) (<-chan agent.Event, error) {
 
 // handleFileChange handles a file change event
 func (p *Provider) handleFileChange(path string, events chan<- agent.Event) {
-	// Check if this is a new session
-	if strings.HasSuffix(path, "session.json") {
-		sessionPath := filepath.Dir(path)
-		a, err := NewOpenCodeAgent(sessionPath)
+	// Check if this is a new session file
+	if strings.Contains(path, "/session/") && strings.HasSuffix(path, ".json") {
+		a, err := NewOpenCodeAgent(p.storagePath, path)
 		if err != nil {
 			return
 		}
@@ -465,9 +588,13 @@ func (p *Provider) handleFileChange(path string, events chan<- agent.Event) {
 			p.agents[a.ID()] = a
 			p.mu.Unlock()
 
-			// Watch the new session
-			p.watcher.Add(sessionPath)
-			p.watcher.Add(filepath.Join(sessionPath, "messages"))
+			// Watch the new session's messages and parts
+			if p.watcher != nil {
+				msgPath := filepath.Join(p.storagePath, "message", a.ID())
+				p.watcher.Add(msgPath)
+				partPath := filepath.Join(p.storagePath, "part", a.ID())
+				p.watcher.Add(partPath)
+			}
 
 			events <- agent.Event{
 				Type:      agent.EventAgentDiscovered,
@@ -489,43 +616,47 @@ func (p *Provider) handleFileChange(path string, events chan<- agent.Event) {
 		return
 	}
 
-	// Check if this is a message update
-	if strings.Contains(path, "/messages/") && strings.HasSuffix(path, ".json") {
-		// Find the agent by storage path
-		parts := strings.Split(path, "/messages/")
-		if len(parts) >= 1 {
-			sessionPath := parts[0]
+	// Check if this is a message or part update
+	if (strings.Contains(path, "/message/") || strings.Contains(path, "/part/")) && strings.HasSuffix(path, ".json") {
+		// Extract session ID from path
+		parts := strings.Split(path, "/")
+		var sessionID string
+		for i, part := range parts {
+			if (part == "message" || part == "part") && i+1 < len(parts) {
+				sessionID = parts[i+1]
+				break
+			}
+		}
+
+		if sessionID != "" {
 			p.mu.RLock()
-			for _, a := range p.agents {
-				if a.storagePath == sessionPath {
-					p.mu.RUnlock()
+			a, ok := p.agents[sessionID]
+			p.mu.RUnlock()
 
-					oldStatus := a.Status()
-					a.Refresh()
-					newStatus := a.Status()
+			if ok {
+				oldStatus := a.Status()
+				a.Refresh()
+				newStatus := a.Status()
 
-					eventType := agent.EventAgentUpdated
-					if oldStatus != newStatus {
-						switch newStatus {
-						case agent.StatusRunning:
-							eventType = agent.EventAgentStarted
-						case agent.StatusCompleted:
-							eventType = agent.EventAgentCompleted
-						case agent.StatusErrored:
-							eventType = agent.EventAgentErrored
-						}
+				eventType := agent.EventAgentUpdated
+				if oldStatus != newStatus {
+					switch newStatus {
+					case agent.StatusRunning:
+						eventType = agent.EventAgentStarted
+					case agent.StatusCompleted:
+						eventType = agent.EventAgentCompleted
+					case agent.StatusErrored:
+						eventType = agent.EventAgentErrored
 					}
+				}
 
-					events <- agent.Event{
-						Type:      eventType,
-						AgentID:   a.ID(),
-						Agent:     a,
-						Timestamp: time.Now(),
-					}
-					return
+				events <- agent.Event{
+					Type:      eventType,
+					AgentID:   a.ID(),
+					Agent:     a,
+					Timestamp: time.Now(),
 				}
 			}
-			p.mu.RUnlock()
 		}
 	}
 }

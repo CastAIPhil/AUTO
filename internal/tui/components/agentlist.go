@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -23,7 +24,24 @@ func (i AgentItem) Title() string {
 }
 
 func (i AgentItem) Description() string {
-	return fmt.Sprintf("%s %s", i.Agent.Status().Icon(), i.Agent.CurrentTask())
+	task := i.Agent.CurrentTask()
+	if task == "" {
+		task = i.Agent.Directory()
+	}
+
+	ago := time.Since(i.Agent.LastActivity())
+	var timeStr string
+	if ago < time.Minute {
+		timeStr = "just now"
+	} else if ago < time.Hour {
+		timeStr = fmt.Sprintf("%dm ago", int(ago.Minutes()))
+	} else if ago < 24*time.Hour {
+		timeStr = fmt.Sprintf("%dh ago", int(ago.Hours()))
+	} else {
+		timeStr = fmt.Sprintf("%dd ago", int(ago.Hours()/24))
+	}
+
+	return fmt.Sprintf("%s %s · %s", i.Agent.Status().Icon(), task, timeStr)
 }
 
 func (i AgentItem) FilterValue() string {
@@ -202,22 +220,8 @@ func (a *AgentList) Update(msg tea.Msg) (*AgentList, tea.Cmd) {
 func (a *AgentList) updateItems() {
 	agents := a.manager.List()
 
-	// Sort agents by status (running first), then by name
 	sort.Slice(agents, func(i, j int) bool {
-		if agents[i].Status() != agents[j].Status() {
-			// Running agents first, then idle, then others
-			statusOrder := map[agent.Status]int{
-				agent.StatusRunning:      0,
-				agent.StatusIdle:         1,
-				agent.StatusPending:      2,
-				agent.StatusCompleted:    3,
-				agent.StatusErrored:      4,
-				agent.StatusContextLimit: 5,
-				agent.StatusCancelled:    6,
-			}
-			return statusOrder[agents[i].Status()] < statusOrder[agents[j].Status()]
-		}
-		return agents[i].Name() < agents[j].Name()
+		return agents[i].LastActivity().After(agents[j].LastActivity())
 	})
 
 	items := make([]list.Item, len(agents))

@@ -440,3 +440,10 @@ func (m *Manager) LastActivityTime() time.Time {
 	}
 	return latest
 }
+
+// AddAgentForTesting adds an agent directly (for testing only)
+func (m *Manager) AddAgentForTesting(a agent.Agent) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.agents[a.ID()] = a
+}
