@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fsnotify/fsnotify"
 	"github.com/CastAIPhil/AUTO/internal/agent"
+	"github.com/fsnotify/fsnotify"
 )
 
 // SessionData represents the opencode session.json structure
@@ -481,7 +481,6 @@ func (a *OpenCodeAgent) Resume() error {
 	return fmt.Errorf("resume not supported for opencode sessions")
 }
 
-// Provider implements the agent.Provider interface for opencode
 type Provider struct {
 	storagePath   string
 	watchInterval time.Duration
@@ -489,15 +488,17 @@ type Provider struct {
 	agents        map[string]*OpenCodeAgent
 	mu            sync.RWMutex
 	watcher       *fsnotify.Watcher
+	pendingPaths  map[string]time.Time
+	pendingMu     sync.Mutex
 }
 
-// NewProvider creates a new opencode provider
 func NewProvider(storagePath string, watchInterval time.Duration, maxAge time.Duration) *Provider {
 	return &Provider{
 		storagePath:   storagePath,
 		watchInterval: watchInterval,
 		maxAge:        maxAge,
 		agents:        make(map[string]*OpenCodeAgent),
+		pendingPaths:  make(map[string]time.Time),
 	}
 }
 
@@ -590,15 +591,15 @@ func (p *Provider) Watch(ctx context.Context) (<-chan agent.Event, error) {
 		}
 	}
 
-	// Watch message directories for existing sessions
-	p.mu.RLock()
-	for _, a := range p.agents {
-		msgPath := filepath.Join(p.storagePath, "message", a.ID())
-		watcher.Add(msgPath)
-		partPath := filepath.Join(p.storagePath, "part", a.ID())
-		watcher.Add(partPath)
+	msgBasePath := filepath.Join(p.storagePath, "message")
+	if err := watcher.Add(msgBasePath); err == nil {
+		msgDirs, _ := os.ReadDir(msgBasePath)
+		for _, d := range msgDirs {
+			if d.IsDir() {
+				watcher.Add(filepath.Join(msgBasePath, d.Name()))
+			}
+		}
 	}
-	p.mu.RUnlock()
 
 	go func() {
 		defer close(events)
@@ -606,6 +607,8 @@ func (p *Provider) Watch(ctx context.Context) (<-chan agent.Event, error) {
 
 		ticker := time.NewTicker(p.watchInterval)
 		defer ticker.Stop()
+
+		debounceInterval := 200 * time.Millisecond
 
 		for {
 			select {
@@ -618,18 +621,33 @@ func (p *Provider) Watch(ctx context.Context) (<-chan agent.Event, error) {
 				}
 
 				if event.Op&(fsnotify.Create|fsnotify.Write) != 0 {
-					p.handleFileChange(event.Name, events)
+					p.pendingMu.Lock()
+					p.pendingPaths[event.Name] = time.Now()
+					p.pendingMu.Unlock()
 				}
 
 			case <-ticker.C:
-				// Periodic refresh of all agents
+				p.pendingMu.Lock()
+				now := time.Now()
+				var pathsToProcess []string
+				for path, addedTime := range p.pendingPaths {
+					if now.Sub(addedTime) >= debounceInterval {
+						pathsToProcess = append(pathsToProcess, path)
+						delete(p.pendingPaths, path)
+					}
+				}
+				p.pendingMu.Unlock()
+
+				for _, path := range pathsToProcess {
+					p.handleFileChange(path, events)
+				}
+
 				p.refreshAll(events)
 
 			case err, ok := <-watcher.Errors:
 				if !ok {
 					return
 				}
-				// Log error but continue
 				_ = err
 			}
 		}
@@ -653,12 +671,9 @@ func (p *Provider) handleFileChange(path string, events chan<- agent.Event) {
 			p.agents[a.ID()] = a
 			p.mu.Unlock()
 
-			// Watch the new session's messages and parts
 			if p.watcher != nil {
 				msgPath := filepath.Join(p.storagePath, "message", a.ID())
 				p.watcher.Add(msgPath)
-				partPath := filepath.Join(p.storagePath, "part", a.ID())
-				p.watcher.Add(partPath)
 			}
 
 			events <- agent.Event{
@@ -726,7 +741,6 @@ func (p *Provider) handleFileChange(path string, events chan<- agent.Event) {
 	}
 }
 
-// refreshAll refreshes all agents
 func (p *Provider) refreshAll(events chan<- agent.Event) {
 	p.mu.RLock()
 	agents := make([]*OpenCodeAgent, 0, len(p.agents))
@@ -736,6 +750,22 @@ func (p *Provider) refreshAll(events chan<- agent.Event) {
 	p.mu.RUnlock()
 
 	for _, a := range agents {
+		info, err := os.Stat(a.sessionFile)
+		if err != nil {
+			continue
+		}
+
+		a.mu.RLock()
+		lastKnown := a.lastActivity
+		a.mu.RUnlock()
+
+		if !info.ModTime().After(lastKnown) {
+			a.mu.Lock()
+			a.determineStatusFast()
+			a.mu.Unlock()
+			continue
+		}
+
 		oldStatus := a.Status()
 		a.Refresh()
 		newStatus := a.Status()

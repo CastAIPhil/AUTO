@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/CastAIPhil/AUTO/internal/agent"
 	"github.com/CastAIPhil/AUTO/internal/alert"
 	"github.com/CastAIPhil/AUTO/internal/config"
 	"github.com/CastAIPhil/AUTO/internal/session"
 	"github.com/CastAIPhil/AUTO/internal/tui/components"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type Theme = components.Theme
@@ -72,11 +72,10 @@ func NewApp(cfg *config.Config, manager *session.Manager, alertMgr *alert.Manage
 	}
 }
 
-// Init initializes the application
 func (a *App) Init() tea.Cmd {
 	return tea.Batch(
 		a.tickCmd(),
-		a.waitForEvents(),
+		a.listenForEvents(),
 	)
 }
 
@@ -89,15 +88,13 @@ func (a *App) tickCmd() tea.Cmd {
 
 type tickMsg time.Time
 
-// waitForEvents waits for agent events
-func (a *App) waitForEvents() tea.Cmd {
+func (a *App) listenForEvents() tea.Cmd {
 	return func() tea.Msg {
-		select {
-		case event := <-a.eventChan:
-			return event
-		case <-time.After(100 * time.Millisecond):
+		event, ok := <-a.eventChan
+		if !ok {
 			return nil
 		}
+		return event
 	}
 }
 
@@ -180,7 +177,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		cmds = append(cmds, a.tickCmd())
-		cmds = append(cmds, a.waitForEvents())
 
 	case agent.Event:
 		if a.agentList != nil {
@@ -193,7 +189,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.viewport, _ = a.viewport.Update(components.AgentSelectedMsg{Agent: msg.Agent})
 			}
 		}
-		cmds = append(cmds, a.waitForEvents())
+		cmds = append(cmds, a.listenForEvents())
 
 	case components.AgentSelectedMsg:
 		if a.viewport != nil {

@@ -140,7 +140,7 @@ func DefaultConfig() *Config {
 			OpenCode: OpenCodeConfig{
 				Enabled:       true,
 				StoragePath:   filepath.Join(homeDir, ".local", "share", "opencode", "storage"),
-				WatchInterval: 1 * time.Second,
+				WatchInterval: 5 * time.Second,
 				MaxAge:        24 * time.Hour,
 			},
 		},
