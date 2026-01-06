@@ -1,0 +1,65 @@
+general:
+  refresh_interval: 5s
+  log_level: info
+  log_file: ""
+
+providers:
+  opencode:
+    enabled: true
+    storage_path: ~/.local/share/opencode/storage
+    watch_interval: 1s
+
+alerts:
+  context_limit_warning: 90
+  long_running_threshold: 30m
+  sound_enabled: false
+  desktop_notifications: true
+  slack_enabled: false
+  slack_webhook_url: ""
+  slack_channel: ""
+  discord_enabled: false
+  discord_webhook_url: ""
+
+ui:
+  show_header: true
+  show_footer: true
+  agent_list_width: 30
+  default_grouping: type
+  show_metrics: true
+
+theme:
+  mode: dark
+  colors:
+    primary: "#7C3AED"
+    secondary: "#A78BFA"
+    accent: "#10B981"
+    background: "#1E1E2E"
+    foreground: "#CDD6F4"
+    border: "#45475A"
+    border_focused: "#7C3AED"
+    status_running: "#10B981"
+    status_idle: "#F59E0B"
+    status_error: "#EF4444"
+    status_done: "#3B82F6"
+
+keys:
+  quit: "q"
+  help: "?"
+  search: "/"
+  command: ":"
+  next_agent: "j"
+  prev_agent: "k"
+  focus_agent: "enter"
+  terminate_agent: "x"
+  pause_agent: "space"
+  send_input: "i"
+  toggle_grouping: "g"
+  switch_pane: "tab"
+
+storage:
+  database_path: ~/.local/share/auto/auto.db
+  max_history: 30
+
+metrics:
+  token_cost_input: 0.003
+  token_cost_output: 0.015

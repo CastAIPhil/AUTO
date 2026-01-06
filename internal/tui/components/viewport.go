@@ -1,0 +1,285 @@
+package components
+
+import (
+	"fmt"
+	"io"
+	"strings"
+	"time"
+
+	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/localrivet/auto/internal/agent"
+)
+
+// SessionViewport displays agent session output
+type SessionViewport struct {
+	viewport   viewport.Model
+	theme      *Theme
+	agent      agent.Agent
+	content    string
+	focused    bool
+	width      int
+	height     int
+	autoScroll bool
+}
+
+// NewSessionViewport creates a new session viewport
+func NewSessionViewport(theme *Theme, width, height int) *SessionViewport {
+	vp := viewport.New(width-4, height-6) // Account for borders and header
+	vp.Style = lipgloss.NewStyle()
+
+	return &SessionViewport{
+		viewport:   vp,
+		theme:      theme,
+		width:      width,
+		height:     height,
+		autoScroll: true,
+	}
+}
+
+// Init initializes the viewport
+func (s *SessionViewport) Init() tea.Cmd {
+	return nil
+}
+
+// Update handles messages
+func (s *SessionViewport) Update(msg tea.Msg) (*SessionViewport, tea.Cmd) {
+	var cmd tea.Cmd
+
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "G":
+			// Go to bottom and enable auto-scroll
+			s.viewport.GotoBottom()
+			s.autoScroll = true
+		case "g":
+			// Go to top and disable auto-scroll
+			s.viewport.GotoTop()
+			s.autoScroll = false
+		case "ctrl+c":
+			// Copy content to clipboard (placeholder)
+		}
+
+	case AgentSelectedMsg:
+		s.SetAgent(msg.Agent)
+		return s, s.refreshContent()
+
+	case ViewportRefreshMsg:
+		s.updateContent()
+	}
+
+	// Update viewport
+	s.viewport, cmd = s.viewport.Update(msg)
+
+	// Check if user scrolled manually
+	if s.viewport.AtBottom() {
+		s.autoScroll = true
+	} else if msg != nil {
+		if _, ok := msg.(tea.KeyMsg); ok {
+			s.autoScroll = false
+		}
+	}
+
+	return s, cmd
+}
+
+// ViewportRefreshMsg triggers a content refresh
+type ViewportRefreshMsg struct{}
+
+// refreshContent returns a command to refresh content
+func (s *SessionViewport) refreshContent() tea.Cmd {
+	return func() tea.Msg {
+		return ViewportRefreshMsg{}
+	}
+}
+
+// updateContent updates the viewport content from the agent
+func (s *SessionViewport) updateContent() {
+	if s.agent == nil {
+		s.content = s.renderEmptyState()
+		s.viewport.SetContent(s.content)
+		return
+	}
+
+	// Read output from agent
+	reader := s.agent.Output()
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		s.content = fmt.Sprintf("Error reading output: %v", err)
+	} else {
+		s.content = string(data)
+	}
+
+	// Apply syntax highlighting / formatting
+	s.content = s.formatContent(s.content)
+	s.viewport.SetContent(s.content)
+
+	// Auto-scroll if enabled
+	if s.autoScroll {
+		s.viewport.GotoBottom()
+	}
+}
+
+// renderEmptyState renders the empty state
+func (s *SessionViewport) renderEmptyState() string {
+	return s.theme.Base.Faint(true).Render(`
+  No agent selected.
+
+  Select an agent from the list to view its output.
+
+  Keys:
+    j/k - Navigate agents
+    Enter - Select agent
+    ? - Help
+`)
+}
+
+// formatContent formats the output content
+func (s *SessionViewport) formatContent(content string) string {
+	if content == "" {
+		return s.theme.Base.Faint(true).Render("(no output)")
+	}
+
+	lines := strings.Split(content, "\n")
+	var formatted []string
+
+	for _, line := range lines {
+		// Highlight errors
+		if strings.Contains(strings.ToLower(line), "error") {
+			line = s.theme.StatusStyle(agent.StatusErrored).Render(line)
+		} else if strings.Contains(strings.ToLower(line), "warning") {
+			line = lipgloss.NewStyle().Foreground(s.theme.StatusIdle).Render(line)
+		} else if strings.HasPrefix(line, ">>>") || strings.HasPrefix(line, "---") {
+			line = s.theme.Title.Render(line)
+		}
+		formatted = append(formatted, line)
+	}
+
+	return strings.Join(formatted, "\n")
+}
+
+// View renders the viewport
+func (s *SessionViewport) View() string {
+	style := s.theme.ViewportStyle.Width(s.width).Height(s.height)
+	if s.focused {
+		style = s.theme.FocusedBorder(style)
+	}
+
+	// Build header
+	header := s.renderHeader()
+
+	// Build footer with scroll info
+	footer := s.renderFooter()
+
+	// Calculate viewport height
+	viewportHeight := s.height - 4 - lipgloss.Height(header) - lipgloss.Height(footer)
+	s.viewport.Height = viewportHeight
+
+	return style.Render(
+		lipgloss.JoinVertical(lipgloss.Left,
+			header,
+			s.viewport.View(),
+			footer,
+		),
+	)
+}
+
+// renderHeader renders the viewport header
+func (s *SessionViewport) renderHeader() string {
+	if s.agent == nil {
+		return s.theme.Header.Render("Session Output")
+	}
+
+	status := StatusIndicator(s.theme, s.agent.Status())
+	name := s.agent.Name()
+	task := s.agent.CurrentTask()
+
+	if len(task) > 50 {
+		task = task[:50] + "..."
+	}
+
+	return s.theme.Header.Render(fmt.Sprintf("%s %s - %s", status, name, task))
+}
+
+// renderFooter renders the viewport footer
+func (s *SessionViewport) renderFooter() string {
+	if s.agent == nil {
+		return ""
+	}
+
+	metrics := s.agent.Metrics()
+	scrollInfo := fmt.Sprintf("%d%%", int(s.viewport.ScrollPercent()*100))
+
+	info := fmt.Sprintf("Tokens: %d/%d | Cost: $%.4f | Tools: %d | %s",
+		metrics.TokensIn,
+		metrics.TokensOut,
+		metrics.EstimatedCost,
+		metrics.ToolCalls,
+		scrollInfo,
+	)
+
+	if s.autoScroll {
+		info += " [auto-scroll]"
+	}
+
+	return s.theme.Footer.Render(info)
+}
+
+// SetSize sets the component size
+func (s *SessionViewport) SetSize(width, height int) {
+	s.width = width
+	s.height = height
+	s.viewport.Width = width - 4
+	s.viewport.Height = height - 8
+}
+
+// SetFocused sets the focus state
+func (s *SessionViewport) SetFocused(focused bool) {
+	s.focused = focused
+}
+
+// IsFocused returns the focus state
+func (s *SessionViewport) IsFocused() bool {
+	return s.focused
+}
+
+// SetAgent sets the agent to display
+func (s *SessionViewport) SetAgent(ag agent.Agent) {
+	s.agent = ag
+	s.updateContent()
+}
+
+// Agent returns the current agent
+func (s *SessionViewport) Agent() agent.Agent {
+	return s.agent
+}
+
+// ScrollToTop scrolls to the top
+func (s *SessionViewport) ScrollToTop() {
+	s.viewport.GotoTop()
+	s.autoScroll = false
+}
+
+// ScrollToBottom scrolls to the bottom
+func (s *SessionViewport) ScrollToBottom() {
+	s.viewport.GotoBottom()
+	s.autoScroll = true
+}
+
+// SetAutoScroll sets the auto-scroll state
+func (s *SessionViewport) SetAutoScroll(enabled bool) {
+	s.autoScroll = enabled
+}
+
+// FormatDuration formats a duration for display
+func FormatDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm%ds", int(d.Minutes()), int(d.Seconds())%60)
+	}
+	return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
+}
