@@ -216,11 +216,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.inputActive = false
 		a.input.Blur()
 		if selected := a.agentList.Selected(); selected != nil {
-			// Check if agent supports streaming
+			if a.viewport != nil {
+				a.viewport.AppendUserInput(msg.Value)
+			}
 			if streamingAgent, ok := selected.(agent.StreamingAgent); ok {
 				return a, a.startStreaming(streamingAgent, msg.Value)
 			}
-			// Fall back to non-streaming
 			a.manager.SendInput(selected.ID(), msg.Value)
 		}
 
@@ -656,37 +657,55 @@ func (a *App) startStreaming(streamingAgent agent.StreamingAgent, input string) 
 	}
 }
 
-// waitForStreamEvents returns a command to wait for the next stream event
+// waitForStreamEvents returns a command that blocks until the next stream event
 func (a *App) waitForStreamEvents() tea.Cmd {
-	return func() tea.Msg {
-		return a.readNextStreamEvent()
-	}
-}
+	// Capture the channel and agent ID to avoid race conditions
+	streamChan := a.streamChan
+	agentID := a.streamAgentID
 
-// readNextStreamEvent reads the next event from the stream channel
-func (a *App) readNextStreamEvent() tea.Msg {
-	if a.streamChan == nil {
+	if streamChan == nil {
 		return nil
 	}
 
-	select {
-	case event, ok := <-a.streamChan:
+	return func() tea.Msg {
+		// Block until we get an event
+		event, ok := <-streamChan
 		if !ok {
 			// Channel closed
 			return components.StreamEventMsg{
 				Event: agent.StreamEvent{
 					Type: "done",
 				},
-				AgentID: a.streamAgentID,
+				AgentID: agentID,
 			}
 		}
 		return components.StreamEventMsg{
 			Event:   event,
+			AgentID: agentID,
+		}
+	}
+}
+
+// readNextStreamEvent reads the next event from the stream channel (blocking)
+func (a *App) readNextStreamEvent() tea.Msg {
+	if a.streamChan == nil {
+		return nil
+	}
+
+	// Block until we get an event
+	event, ok := <-a.streamChan
+	if !ok {
+		// Channel closed
+		return components.StreamEventMsg{
+			Event: agent.StreamEvent{
+				Type: "done",
+			},
 			AgentID: a.streamAgentID,
 		}
-	default:
-		// No event ready, return nil and let tick retry
-		return nil
+	}
+	return components.StreamEventMsg{
+		Event:   event,
+		AgentID: a.streamAgentID,
 	}
 }
 

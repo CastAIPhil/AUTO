@@ -343,6 +343,15 @@ func (s *SessionViewport) ClearStreamContent() {
 	s.isStreaming = false
 }
 
+func (s *SessionViewport) AppendUserInput(input string) {
+	userPrefix := lipgloss.NewStyle().Foreground(s.theme.Secondary).Bold(true).Render(">>> You: ")
+	s.content += "\n\n" + userPrefix + input + "\n"
+	s.viewport.SetContent(s.formatContent(s.content))
+	if s.autoScroll {
+		s.viewport.GotoBottom()
+	}
+}
+
 // IsStreaming returns whether the viewport is currently streaming
 func (s *SessionViewport) IsStreaming() bool {
 	return s.isStreaming
