@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gen2brain/beeep"
 	"github.com/CastAIPhil/AUTO/internal/agent"
 	"github.com/CastAIPhil/AUTO/internal/config"
 	"github.com/CastAIPhil/AUTO/internal/store"
+	"github.com/gen2brain/beeep"
 	"github.com/slack-go/slack"
 )
 
@@ -76,6 +76,7 @@ func NewManager(cfg *config.AlertsConfig, st *store.Store) *Manager {
 	if cfg.DiscordEnabled && cfg.DiscordWebhookURL != "" {
 		m.channels = append(m.channels, &DiscordChannel{
 			webhookURL: cfg.DiscordWebhookURL,
+			httpClient: &http.Client{Timeout: 10 * time.Second},
 		})
 	}
 
@@ -307,6 +308,7 @@ func (c *SlackChannel) Send(ctx context.Context, alert *Alert) error {
 // DiscordChannel sends Discord notifications
 type DiscordChannel struct {
 	webhookURL string
+	httpClient *http.Client
 }
 
 func (c *DiscordChannel) Name() string {
@@ -364,7 +366,11 @@ func (c *DiscordChannel) Send(ctx context.Context, alert *Alert) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	client := c.httpClient
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Second}
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}

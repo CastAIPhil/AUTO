@@ -1,0 +1,211 @@
+commit: c8210dd
+branch: perf-improvements
+date: 2026-01-06T18:28:59-05:00
+go-version: go1.25.5
+os: Linux
+arch: x86_64
+
+?   	github.com/CastAIPhil/AUTO/cmd/auto	[no test files]
+PASS
+ok  	github.com/CastAIPhil/AUTO/internal/agent	0.005s
+PASS
+ok  	github.com/CastAIPhil/AUTO/internal/agent/providers/opencode	2.563s
+PASS
+ok  	github.com/CastAIPhil/AUTO/internal/alert	0.012s
+PASS
+ok  	github.com/CastAIPhil/AUTO/internal/config	0.009s
+?   	github.com/CastAIPhil/AUTO/internal/debug	[no test files]
+PASS
+ok  	github.com/CastAIPhil/AUTO/internal/plugin	0.005s
+goos: linux
+goarch: amd64
+pkg: github.com/CastAIPhil/AUTO/internal/session
+cpu: Intel(R) Core(TM) Ultra 7 255U
+BenchmarkManagerList/agents=10-14    	 6062124	       217.1 ns/op	     160 B/op	       1 allocs/op
+BenchmarkManagerList/agents=10-14    	 4601289	       231.6 ns/op	     160 B/op	       1 allocs/op
+BenchmarkManagerList/agents=10-14    	 6506364	       170.5 ns/op	     160 B/op	       1 allocs/op
+BenchmarkManagerList/agents=10-14    	 6491158	       178.6 ns/op	     160 B/op	       1 allocs/op
+BenchmarkManagerList/agents=10-14    	 6874711	       170.8 ns/op	     160 B/op	       1 allocs/op
+BenchmarkManagerList/agents=50-14    	 1859232	       696.7 ns/op	     896 B/op	       1 allocs/op
+BenchmarkManagerList/agents=50-14    	 1658412	       672.1 ns/op	     896 B/op	       1 allocs/op
+BenchmarkManagerList/agents=50-14    	 1606664	       786.3 ns/op	     896 B/op	       1 allocs/op
+BenchmarkManagerList/agents=50-14    	 1698013	       721.8 ns/op	     896 B/op	       1 allocs/op
+BenchmarkManagerList/agents=50-14    	 1745876	       709.2 ns/op	     896 B/op	       1 allocs/op
+BenchmarkManagerList/agents=100-14   	  996938	      1219 ns/op	    1792 B/op	       1 allocs/op
+BenchmarkManagerList/agents=100-14   	  867303	      1253 ns/op	    1792 B/op	       1 allocs/op
+BenchmarkManagerList/agents=100-14   	  850632	      1187 ns/op	    1792 B/op	       1 allocs/op
+BenchmarkManagerList/agents=100-14   	  849050	      1315 ns/op	    1792 B/op	       1 allocs/op
+BenchmarkManagerList/agents=100-14   	  818126	      1242 ns/op	    1792 B/op	       1 allocs/op
+BenchmarkManagerList/agents=500-14   	  170400	      6940 ns/op	    8192 B/op	       1 allocs/op
+BenchmarkManagerList/agents=500-14   	  158319	      6846 ns/op	    8192 B/op	       1 allocs/op
+BenchmarkManagerList/agents=500-14   	  176532	      6508 ns/op	    8192 B/op	       1 allocs/op
+BenchmarkManagerList/agents=500-14   	  177876	      6890 ns/op	    8192 B/op	       1 allocs/op
+BenchmarkManagerList/agents=500-14   	  161137	      7904 ns/op	    8192 B/op	       1 allocs/op
+BenchmarkManagerGet-14               	15519128	        71.51 ns/op	       8 B/op	       1 allocs/op
+BenchmarkManagerGet-14               	15603529	        69.52 ns/op	       8 B/op	       1 allocs/op
+BenchmarkManagerGet-14               	16181113	        71.15 ns/op	       8 B/op	       1 allocs/op
+BenchmarkManagerGet-14               	16176243	        67.35 ns/op	       8 B/op	       1 allocs/op
+BenchmarkManagerGet-14               	15728943	        68.79 ns/op	       8 B/op	       1 allocs/op
+BenchmarkManagerStats/agents=10-14   	  945193	      1135 ns/op	    1240 B/op	      10 allocs/op
+BenchmarkManagerStats/agents=10-14   	  972349	      1162 ns/op	    1240 B/op	      10 allocs/op
+BenchmarkManagerStats/agents=10-14   	 1026564	      1155 ns/op	    1240 B/op	      10 allocs/op
+BenchmarkManagerStats/agents=10-14   	  985436	      1153 ns/op	    1240 B/op	      10 allocs/op
+BenchmarkManagerStats/agents=10-14   	  878378	      1148 ns/op	    1240 B/op	      10 allocs/op
+BenchmarkManagerStats/agents=50-14   	  368572	      3081 ns/op	    1240 B/op	      10 allocs/op
+BenchmarkManagerStats/agents=50-14   	  399290	      3653 ns/op	    1240 B/op	      10 allocs/op
+BenchmarkManagerStats/agents=50-14   	  308766	      3361 ns/op	    1240 B/op	      10 allocs/op
+BenchmarkManagerStats/agents=50-14   	  363944	      3018 ns/op	    1240 B/op	      10 allocs/op
+BenchmarkManagerStats/agents=50-14   	  349872	      3105 ns/op	    1240 B/op	      10 allocs/op
+BenchmarkManagerStats/agents=100-14  	  187923	      5558 ns/op	    1240 B/op	      10 allocs/op
+BenchmarkManagerStats/agents=100-14  	  216028	      5855 ns/op	    1240 B/op	      10 allocs/op
+BenchmarkManagerStats/agents=100-14  	  204507	      5274 ns/op	    1240 B/op	      10 allocs/op
+BenchmarkManagerStats/agents=100-14  	  201542	      5281 ns/op	    1240 B/op	      10 allocs/op
+BenchmarkManagerStats/agents=100-14  	  226567	      5632 ns/op	    1240 B/op	      10 allocs/op
+BenchmarkManagerStats/agents=500-14  	   41133	     25569 ns/op	    1240 B/op	      10 allocs/op
+BenchmarkManagerStats/agents=500-14  	   41514	     30678 ns/op	    1240 B/op	      10 allocs/op
+BenchmarkManagerStats/agents=500-14  	   47457	     25411 ns/op	    1240 B/op	      10 allocs/op
+BenchmarkManagerStats/agents=500-14  	   45652	     26593 ns/op	    1240 B/op	      10 allocs/op
+BenchmarkManagerStats/agents=500-14  	   45606	     25265 ns/op	    1240 B/op	      10 allocs/op
+BenchmarkManagerGroupBy/flat-14      	  339043	      3445 ns/op	    4512 B/op	       9 allocs/op
+BenchmarkManagerGroupBy/flat-14      	  347500	      3415 ns/op	    4512 B/op	       9 allocs/op
+BenchmarkManagerGroupBy/flat-14      	  337704	      3536 ns/op	    4512 B/op	       9 allocs/op
+BenchmarkManagerGroupBy/flat-14      	  302936	      3412 ns/op	    4512 B/op	       9 allocs/op
+BenchmarkManagerGroupBy/flat-14      	  352518	      3564 ns/op	    4512 B/op	       9 allocs/op
+BenchmarkManagerGroupBy/type-14      	  276016	      3760 ns/op	    4512 B/op	       9 allocs/op
+BenchmarkManagerGroupBy/type-14      	  301039	      3729 ns/op	    4512 B/op	       9 allocs/op
+BenchmarkManagerGroupBy/type-14      	  278518	      3803 ns/op	    4512 B/op	       9 allocs/op
+BenchmarkManagerGroupBy/type-14      	  334100	      3685 ns/op	    4512 B/op	       9 allocs/op
+BenchmarkManagerGroupBy/type-14      	  301731	      3722 ns/op	    4512 B/op	       9 allocs/op
+BenchmarkManagerGroupBy/project-14   	  186025	      6208 ns/op	    6120 B/op	      54 allocs/op
+BenchmarkManagerGroupBy/project-14   	  172765	      6524 ns/op	    6120 B/op	      54 allocs/op
+BenchmarkManagerGroupBy/project-14   	  179450	      6605 ns/op	    6120 B/op	      54 allocs/op
+BenchmarkManagerGroupBy/project-14   	  164956	      6259 ns/op	    6120 B/op	      54 allocs/op
+BenchmarkManagerGroupBy/project-14   	  180488	      6222 ns/op	    6120 B/op	      54 allocs/op
+BenchmarkManagerGroupBy/status-14    	  221265	      4992 ns/op	    5248 B/op	      31 allocs/op
+BenchmarkManagerGroupBy/status-14    	  231770	      5340 ns/op	    5248 B/op	      31 allocs/op
+BenchmarkManagerGroupBy/status-14    	  203923	      5421 ns/op	    5248 B/op	      31 allocs/op
+BenchmarkManagerGroupBy/status-14    	  179046	      6070 ns/op	    5248 B/op	      31 allocs/op
+BenchmarkManagerGroupBy/status-14    	  160087	      6733 ns/op	    5248 B/op	      31 allocs/op
+BenchmarkManagerFilterByStatus-14    	  863329	      1320 ns/op	    1008 B/op	       6 allocs/op
+BenchmarkManagerFilterByStatus-14    	  956898	      1310 ns/op	    1008 B/op	       6 allocs/op
+BenchmarkManagerFilterByStatus-14    	  992761	      1224 ns/op	    1008 B/op	       6 allocs/op
+BenchmarkManagerFilterByStatus-14    	  928922	      1231 ns/op	    1008 B/op	       6 allocs/op
+BenchmarkManagerFilterByStatus-14    	  892470	      1267 ns/op	    1008 B/op	       6 allocs/op
+BenchmarkManagerSearch/query=Agent-14         	  335185	      3394 ns/op	    4464 B/op	       8 allocs/op
+BenchmarkManagerSearch/query=Agent-14         	  360578	      3291 ns/op	    4464 B/op	       8 allocs/op
+BenchmarkManagerSearch/query=Agent-14         	  351040	      3417 ns/op	    4464 B/op	       8 allocs/op
+BenchmarkManagerSearch/query=Agent-14         	  335424	      3305 ns/op	    4464 B/op	       8 allocs/op
+BenchmarkManagerSearch/query=Agent-14         	  349570	      3413 ns/op	    4464 B/op	       8 allocs/op
+BenchmarkManagerSearch/query=task-14          	   90630	     15132 ns/op	    4464 B/op	       8 allocs/op
+BenchmarkManagerSearch/query=task-14          	   83072	     12529 ns/op	    4464 B/op	       8 allocs/op
+BenchmarkManagerSearch/query=task-14          	   97066	     13020 ns/op	    4464 B/op	       8 allocs/op
+BenchmarkManagerSearch/query=task-14          	   87944	     12587 ns/op	    4464 B/op	       8 allocs/op
+BenchmarkManagerSearch/query=task-14          	   82682	     13283 ns/op	    4464 B/op	       8 allocs/op
+BenchmarkManagerSearch/query=project-5-14     	  132531	      8588 ns/op	     496 B/op	       5 allocs/op
+BenchmarkManagerSearch/query=project-5-14     	  132639	      8339 ns/op	     496 B/op	       5 allocs/op
+BenchmarkManagerSearch/query=project-5-14     	  141432	      8306 ns/op	     496 B/op	       5 allocs/op
+BenchmarkManagerSearch/query=project-5-14     	  137418	      8288 ns/op	     496 B/op	       5 allocs/op
+BenchmarkManagerSearch/query=project-5-14     	  117799	      9462 ns/op	     496 B/op	       5 allocs/op
+BenchmarkManagerSearch/query=nonexistent-14   	  145464	      7170 ns/op	       0 B/op	       0 allocs/op
+BenchmarkManagerSearch/query=nonexistent-14   	  171992	      5865 ns/op	       0 B/op	       0 allocs/op
+BenchmarkManagerSearch/query=nonexistent-14   	  192603	      5896 ns/op	       0 B/op	       0 allocs/op
+BenchmarkManagerSearch/query=nonexistent-14   	  194875	      5711 ns/op	       0 B/op	       0 allocs/op
+BenchmarkManagerSearch/query=nonexistent-14   	  199674	      5986 ns/op	       0 B/op	       0 allocs/op
+BenchmarkManagerActiveCount-14                	 1592702	       737.4 ns/op	       0 B/op	       0 allocs/op
+BenchmarkManagerActiveCount-14                	 1544041	       735.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkManagerActiveCount-14                	 1551010	       723.4 ns/op	       0 B/op	       0 allocs/op
+BenchmarkManagerActiveCount-14                	 1633982	       710.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkManagerActiveCount-14                	 1696960	       703.2 ns/op	       0 B/op	       0 allocs/op
+BenchmarkManagerRefresh-14                    	28875400	        38.11 ns/op	       0 B/op	       0 allocs/op
+BenchmarkManagerRefresh-14                    	29263258	        39.55 ns/op	       0 B/op	       0 allocs/op
+BenchmarkManagerRefresh-14                    	32167269	        34.43 ns/op	       0 B/op	       0 allocs/op
+BenchmarkManagerRefresh-14                    	33292729	        33.88 ns/op	       0 B/op	       0 allocs/op
+BenchmarkManagerRefresh-14                    	31740115	        33.93 ns/op	       0 B/op	       0 allocs/op
+BenchmarkContainsIgnoreCase/short_match-14    	67536772	        19.35 ns/op	       0 B/op	       0 allocs/op
+BenchmarkContainsIgnoreCase/short_match-14    	64871768	        19.40 ns/op	       0 B/op	       0 allocs/op
+BenchmarkContainsIgnoreCase/short_match-14    	57652092	        19.78 ns/op	       0 B/op	       0 allocs/op
+BenchmarkContainsIgnoreCase/short_match-14    	60146899	        18.67 ns/op	       0 B/op	       0 allocs/op
+BenchmarkContainsIgnoreCase/short_match-14    	60142561	        18.38 ns/op	       0 B/op	       0 allocs/op
+BenchmarkContainsIgnoreCase/short_nomatch-14  	75826666	        16.47 ns/op	       0 B/op	       0 allocs/op
+BenchmarkContainsIgnoreCase/short_nomatch-14  	64262220	        20.37 ns/op	       0 B/op	       0 allocs/op
+BenchmarkContainsIgnoreCase/short_nomatch-14  	69487179	        15.39 ns/op	       0 B/op	       0 allocs/op
+BenchmarkContainsIgnoreCase/short_nomatch-14  	68973214	        15.65 ns/op	       0 B/op	       0 allocs/op
+BenchmarkContainsIgnoreCase/short_nomatch-14  	75776509	        16.49 ns/op	       0 B/op	       0 allocs/op
+BenchmarkContainsIgnoreCase/long_match-14     	18441303	        61.42 ns/op	       0 B/op	       0 allocs/op
+BenchmarkContainsIgnoreCase/long_match-14     	18670254	        61.09 ns/op	       0 B/op	       0 allocs/op
+BenchmarkContainsIgnoreCase/long_match-14     	18872694	        59.25 ns/op	       0 B/op	       0 allocs/op
+BenchmarkContainsIgnoreCase/long_match-14     	18891997	        62.73 ns/op	       0 B/op	       0 allocs/op
+BenchmarkContainsIgnoreCase/long_match-14     	17365393	        61.91 ns/op	       0 B/op	       0 allocs/op
+BenchmarkContainsIgnoreCase/long_nomatch-14   	16192305	        65.85 ns/op	       0 B/op	       0 allocs/op
+BenchmarkContainsIgnoreCase/long_nomatch-14   	18485431	        63.21 ns/op	       0 B/op	       0 allocs/op
+BenchmarkContainsIgnoreCase/long_nomatch-14   	18350498	        60.81 ns/op	       0 B/op	       0 allocs/op
+BenchmarkContainsIgnoreCase/long_nomatch-14   	17678670	        64.25 ns/op	       0 B/op	       0 allocs/op
+BenchmarkContainsIgnoreCase/long_nomatch-14   	18388687	        62.63 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	github.com/CastAIPhil/AUTO/internal/session	166.410s
+goos: linux
+goarch: amd64
+pkg: github.com/CastAIPhil/AUTO/internal/store
+cpu: Intel(R) Core(TM) Ultra 7 255U
+BenchmarkStoreSaveSession-14               	     386	   3005851 ns/op	    2514 B/op	      35 allocs/op
+BenchmarkStoreSaveSession-14               	     403	   3861444 ns/op	    2515 B/op	      35 allocs/op
+BenchmarkStoreSaveSession-14               	     324	   3254397 ns/op	    2516 B/op	      35 allocs/op
+BenchmarkStoreSaveSession-14               	     403	   2905638 ns/op	    2516 B/op	      35 allocs/op
+BenchmarkStoreSaveSession-14               	     396	   3164618 ns/op	    2515 B/op	      35 allocs/op
+BenchmarkStoreGetSession-14                	   62394	     23494 ns/op	    2672 B/op	      94 allocs/op
+BenchmarkStoreGetSession-14                	   57241	     19382 ns/op	    2672 B/op	      94 allocs/op
+BenchmarkStoreGetSession-14                	   61760	     20027 ns/op	    2672 B/op	      94 allocs/op
+BenchmarkStoreGetSession-14                	   62239	     19174 ns/op	    2672 B/op	      94 allocs/op
+BenchmarkStoreGetSession-14                	   60979	     20277 ns/op	    2672 B/op	      94 allocs/op
+BenchmarkStoreListSessions/sessions=10-14  	   18853	     63084 ns/op	    9872 B/op	     329 allocs/op
+BenchmarkStoreListSessions/sessions=10-14  	   18704	     65246 ns/op	    9872 B/op	     329 allocs/op
+BenchmarkStoreListSessions/sessions=10-14  	   17511	     63825 ns/op	    9872 B/op	     329 allocs/op
+BenchmarkStoreListSessions/sessions=10-14  	   18596	     62587 ns/op	    9872 B/op	     329 allocs/op
+BenchmarkStoreListSessions/sessions=10-14  	   17634	     67321 ns/op	    9872 B/op	     329 allocs/op
+BenchmarkStoreListSessions/sessions=50-14  	    4308	    255775 ns/op	   41680 B/op	    1411 allocs/op
+BenchmarkStoreListSessions/sessions=50-14  	    4306	    252877 ns/op	   41680 B/op	    1411 allocs/op
+BenchmarkStoreListSessions/sessions=50-14  	    4474	    276647 ns/op	   41680 B/op	    1411 allocs/op
+BenchmarkStoreListSessions/sessions=50-14  	    3279	    331572 ns/op	   41680 B/op	    1411 allocs/op
+BenchmarkStoreListSessions/sessions=50-14  	    4494	    256987 ns/op	   41680 B/op	    1411 allocs/op
+BenchmarkStoreListSessions/sessions=100-14 	    2238	    492861 ns/op	   81632 B/op	    2762 allocs/op
+BenchmarkStoreListSessions/sessions=100-14 	    2337	    488496 ns/op	   81632 B/op	    2762 allocs/op
+BenchmarkStoreListSessions/sessions=100-14 	    2414	    511441 ns/op	   81632 B/op	    2762 allocs/op
+BenchmarkStoreListSessions/sessions=100-14 	    2221	    545020 ns/op	   81632 B/op	    2762 allocs/op
+BenchmarkStoreListSessions/sessions=100-14 	    2118	    574818 ns/op	   81632 B/op	    2762 allocs/op
+BenchmarkStoreListSessionsWithLimit/limit=10-14         	   13423	    101781 ns/op	   10240 B/op	     333 allocs/op
+BenchmarkStoreListSessionsWithLimit/limit=10-14         	   14875	     71511 ns/op	   10240 B/op	     333 allocs/op
+BenchmarkStoreListSessionsWithLimit/limit=10-14         	   15363	     75227 ns/op	   10240 B/op	     333 allocs/op
+BenchmarkStoreListSessionsWithLimit/limit=10-14         	   14701	     70553 ns/op	   10240 B/op	     333 allocs/op
+BenchmarkStoreListSessionsWithLimit/limit=10-14         	   16380	     70420 ns/op	   10240 B/op	     333 allocs/op
+BenchmarkStoreListSessionsWithLimit/limit=25-14         	    7508	    156226 ns/op	   22128 B/op	     739 allocs/op
+BenchmarkStoreListSessionsWithLimit/limit=25-14         	    8078	    142548 ns/op	   22128 B/op	     739 allocs/op
+BenchmarkStoreListSessionsWithLimit/limit=25-14         	    7095	    171537 ns/op	   22128 B/op	     739 allocs/op
+BenchmarkStoreListSessionsWithLimit/limit=25-14         	    6165	    166887 ns/op	   22128 B/op	     739 allocs/op
+BenchmarkStoreListSessionsWithLimit/limit=25-14         	    6646	    154485 ns/op	   22128 B/op	     739 allocs/op
+BenchmarkStoreListSessionsWithLimit/limit=50-14         	    4330	    271193 ns/op	   42048 B/op	    1415 allocs/op
+BenchmarkStoreListSessionsWithLimit/limit=50-14         	    3723	    278925 ns/op	   42049 B/op	    1415 allocs/op
+BenchmarkStoreListSessionsWithLimit/limit=50-14         	    3949	    287922 ns/op	   42048 B/op	    1415 allocs/op
+BenchmarkStoreListSessionsWithLimit/limit=50-14         	    4161	    277076 ns/op	   42048 B/op	    1415 allocs/op
+BenchmarkStoreListSessionsWithLimit/limit=50-14         	    4017	    281648 ns/op	   42048 B/op	    1415 allocs/op
+BenchmarkStoreListSessionsWithStatus-14                 	    2132	    553316 ns/op	   82016 B/op	    2767 allocs/op
+BenchmarkStoreListSessionsWithStatus-14                 	    2223	    512258 ns/op	   82016 B/op	    2767 allocs/op
+BenchmarkStoreListSessionsWithStatus-14                 	    2112	    554267 ns/op	   82000 B/op	    2767 allocs/op
+BenchmarkStoreListSessionsWithStatus-14                 	    2184	    551022 ns/op	   82017 B/op	    2767 allocs/op
+BenchmarkStoreListSessionsWithStatus-14                 	    2307	    599214 ns/op	   82017 B/op	    2767 allocs/op
+BenchmarkStoreSaveAlert-14                              	     361	   3066596 ns/op	    1126 B/op	      21 allocs/op
+BenchmarkStoreSaveAlert-14                              	     379	   3392744 ns/op	    1126 B/op	      21 allocs/op
+BenchmarkStoreSaveAlert-14                              	     322	   3407413 ns/op	    1125 B/op	      21 allocs/op
+BenchmarkStoreSaveAlert-14                              	     349	   4433453 ns/op	    1126 B/op	      21 allocs/op
+BenchmarkStoreSaveAlert-14                              	     260	   4358004 ns/op	    1124 B/op	      21 allocs/op
+BenchmarkStoreListAlerts/alerts=10-14                   	   30458	     34137 ns/op	    4592 B/op	     168 allocs/op
+BenchmarkStoreListAlerts/alerts=10-14                   	   31122	     37834 ns/op	    4592 B/op	     168 allocs/op
+BenchmarkStoreListAlerts/alerts=10-14                   	   37212	     37144 ns/op	    4592 B/op	     168 allocs/op
+BenchmarkStoreListAlerts/alerts=10-14                   	   34605	     35621 ns/op	    4592 B/op	     168 allocs/op
+BenchmarkStoreListAlerts/alerts=10-14                   	   35034	     45355 ns/op	    4592 B/op	     168 allocs/op
+BenchmarkStoreListAlerts/alerts=50-14                   	    7522	    142000 ns/op	   18800 B/op	     690 allocs/op
+BenchmarkStoreListAlerts/alerts=50-14                   	   10000	    131833 ns/op	   18784 B/op	     690 allocs/op
+BenchmarkStoreListAlerts/alerts=50-14                   	    7765	    197919 ns/op	   18800 B/op	     690 allocs/op
+BenchmarkStoreListAlerts/alerts=50-14                   	    7543	    145317 ns/op	   18800 B/op	     690 allocs/op
+BenchmarkStoreListAlerts/alerts=50-14                   	    7812	    167693 ns/op	   18800 B/op	     690 allocs/op
+BenchmarkStoreListAlerts/alerts=100-14                  	    4419	    273175 ns/op	   36752 B/op	    1341 allocs/op
+BenchmarkStoreListAlerts/alerts=100-14                  	

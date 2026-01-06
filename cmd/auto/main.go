@@ -7,17 +7,19 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/CastAIPhil/AUTO/internal/agent"
 	"github.com/CastAIPhil/AUTO/internal/agent/providers/opencode"
 	"github.com/CastAIPhil/AUTO/internal/alert"
 	"github.com/CastAIPhil/AUTO/internal/config"
+	"github.com/CastAIPhil/AUTO/internal/debug"
 	"github.com/CastAIPhil/AUTO/internal/session"
 	"github.com/CastAIPhil/AUTO/internal/store"
 	"github.com/CastAIPhil/AUTO/internal/tui"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 var (
@@ -41,17 +43,50 @@ func main() {
 	var (
 		configPath  string
 		showVersion bool
+		profile     bool
+		profileAddr string
+		traceFile   string
 	)
 
 	flag.StringVar(&configPath, "config", "", "Path to config file")
 	flag.StringVar(&configPath, "c", "", "Path to config file (shorthand)")
 	flag.BoolVar(&showVersion, "version", false, "Show version")
 	flag.BoolVar(&showVersion, "v", false, "Show version (shorthand)")
+	flag.BoolVar(&profile, "profile", false, "Enable pprof profiling server")
+	flag.StringVar(&profileAddr, "profile-addr", "localhost:6060", "Address for pprof server")
+	flag.StringVar(&traceFile, "trace", "", "Write execution trace to file")
 	flag.Parse()
 
 	if showVersion {
 		fmt.Printf("AUTO version %s (commit: %s, built: %s)\n", version, commit, date)
 		os.Exit(0)
+	}
+
+	var profiler *debug.Profiler
+	var tracer *debug.Tracer
+
+	if profile {
+		runtime.SetBlockProfileRate(1)
+		runtime.SetMutexProfileFraction(1)
+
+		profiler = debug.NewProfiler(profileAddr)
+		if err := profiler.Start(); err != nil {
+			log.Fatalf("Failed to start profiler: %v", err)
+		}
+		defer func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			profiler.Stop(ctx)
+		}()
+	}
+
+	if traceFile != "" {
+		tracer = debug.NewTracer()
+		if err := tracer.Start(traceFile); err != nil {
+			log.Fatalf("Failed to start trace: %v", err)
+		}
+		defer tracer.Stop()
+		log.Printf("Tracing to %s - analyze with: go tool trace %s", traceFile, traceFile)
 	}
 
 	if configPath == "" {

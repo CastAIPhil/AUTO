@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -69,6 +70,10 @@ func New(dbPath string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// SQLite only supports one writer at a time, so limit connections
+	// This prevents "database is locked" errors under concurrent access
+	db.SetMaxOpenConns(1)
 
 	s := &Store{db: db}
 	if err := s.migrate(); err != nil {
@@ -406,16 +411,16 @@ func (s *Store) GetOutput(sessionID string) (string, error) {
 	}
 	defer rows.Close()
 
-	var output string
+	var builder strings.Builder
 	for rows.Next() {
 		var chunk string
 		if err := rows.Scan(&chunk); err != nil {
 			return "", err
 		}
-		output += chunk
+		builder.WriteString(chunk)
 	}
 
-	return output, nil
+	return builder.String(), nil
 }
 
 // GetStats gets aggregate statistics
