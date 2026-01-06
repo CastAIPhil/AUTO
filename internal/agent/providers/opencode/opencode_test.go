@@ -437,7 +437,7 @@ func TestOpenCodeAgent_NameFallback(t *testing.T) {
 }
 
 func TestProvider_NewProvider(t *testing.T) {
-	p := NewProvider("/tmp/test", 5*time.Second)
+	p := NewProvider("/tmp/test", 5*time.Second, 24*time.Hour)
 
 	if p == nil {
 		t.Fatal("NewProvider() returned nil")
@@ -449,6 +449,10 @@ func TestProvider_NewProvider(t *testing.T) {
 
 	if p.watchInterval != 5*time.Second {
 		t.Errorf("watchInterval = %v, want %v", p.watchInterval, 5*time.Second)
+	}
+
+	if p.maxAge != 24*time.Hour {
+		t.Errorf("maxAge = %v, want %v", p.maxAge, 24*time.Hour)
 	}
 
 	if p.Name() != "OpenCode" {
@@ -489,7 +493,7 @@ func TestProvider_Discover(t *testing.T) {
 	// Create a non-JSON file (should be skipped)
 	os.WriteFile(filepath.Join(sessionDir, "readme.txt"), []byte("test"), 0644)
 
-	p := NewProvider(tempDir, 5*time.Second)
+	p := NewProvider(tempDir, 5*time.Second, 0)
 	agents, err := p.Discover(context.Background())
 
 	if err != nil {
@@ -502,7 +506,7 @@ func TestProvider_Discover(t *testing.T) {
 }
 
 func TestProvider_Discover_NonExistentPath(t *testing.T) {
-	p := NewProvider("/nonexistent/path", 5*time.Second)
+	p := NewProvider("/nonexistent/path", 5*time.Second, 0)
 	agents, err := p.Discover(context.Background())
 
 	if err != nil {
@@ -511,6 +515,50 @@ func TestProvider_Discover_NonExistentPath(t *testing.T) {
 
 	if agents != nil && len(agents) != 0 {
 		t.Errorf("Discover() should return empty for nonexistent path")
+	}
+}
+
+func TestProvider_Discover_MaxAge(t *testing.T) {
+	tempDir := t.TempDir()
+	now := time.Now()
+
+	sessionDir := filepath.Join(tempDir, "session", "global")
+	os.MkdirAll(sessionDir, 0755)
+
+	s1 := SessionData{ID: "ses_recent", ProjectID: "global", Directory: "/p1", Title: "Recent"}
+	s1.Time.Created = now.UnixMilli()
+	s1.Time.Updated = now.UnixMilli()
+	data1, _ := json.Marshal(s1)
+	os.WriteFile(filepath.Join(sessionDir, "ses_recent.json"), data1, 0644)
+	os.MkdirAll(filepath.Join(tempDir, "message", "ses_recent"), 0755)
+
+	oldTime := now.Add(-48 * time.Hour)
+	s2 := SessionData{ID: "ses_old", ProjectID: "global", Directory: "/p2", Title: "Old"}
+	s2.Time.Created = oldTime.UnixMilli()
+	s2.Time.Updated = oldTime.UnixMilli()
+	data2, _ := json.Marshal(s2)
+	os.WriteFile(filepath.Join(sessionDir, "ses_old.json"), data2, 0644)
+	os.MkdirAll(filepath.Join(tempDir, "message", "ses_old"), 0755)
+
+	p := NewProvider(tempDir, 5*time.Second, 24*time.Hour)
+	agents, err := p.Discover(context.Background())
+
+	if err != nil {
+		t.Fatalf("Discover() error = %v", err)
+	}
+
+	if len(agents) != 1 {
+		t.Errorf("Discover() with maxAge returned %d agents, want 1", len(agents))
+	}
+
+	if len(agents) > 0 && agents[0].ID() != "ses_recent" {
+		t.Errorf("Expected recent session, got %s", agents[0].ID())
+	}
+
+	pNoLimit := NewProvider(tempDir, 5*time.Second, 0)
+	agentsAll, _ := pNoLimit.Discover(context.Background())
+	if len(agentsAll) != 2 {
+		t.Errorf("Discover() with no maxAge returned %d agents, want 2", len(agentsAll))
 	}
 }
 
@@ -529,7 +577,7 @@ func TestProvider_GetAndList(t *testing.T) {
 	os.MkdirAll(filepath.Join(tempDir, "message", "ses_1"), 0755)
 	os.MkdirAll(filepath.Join(tempDir, "part", "ses_1"), 0755)
 
-	p := NewProvider(tempDir, 5*time.Second)
+	p := NewProvider(tempDir, 5*time.Second, 0)
 	p.Discover(context.Background())
 
 	// Test Get
@@ -569,7 +617,7 @@ func TestProvider_Terminate(t *testing.T) {
 	os.MkdirAll(filepath.Join(tempDir, "message", "ses_1"), 0755)
 	os.MkdirAll(filepath.Join(tempDir, "part", "ses_1"), 0755)
 
-	p := NewProvider(tempDir, 5*time.Second)
+	p := NewProvider(tempDir, 5*time.Second, 0)
 	p.Discover(context.Background())
 
 	// Terminate existing agent
@@ -596,7 +644,7 @@ func TestProvider_SendInput(t *testing.T) {
 	sessionDir := filepath.Join(tempDir, "session", "global")
 	os.MkdirAll(sessionDir, 0755)
 
-	s := SessionData{ID: "ses_1", ProjectID: "global", Directory: "/p1", Title: "Session 1"}
+	s := SessionData{ID: "ses_1", ProjectID: "global", Directory: tempDir, Title: "Session 1"}
 	s.Time.Created = now.UnixMilli()
 	s.Time.Updated = now.UnixMilli()
 	data, _ := json.Marshal(s)
@@ -604,15 +652,13 @@ func TestProvider_SendInput(t *testing.T) {
 	os.MkdirAll(filepath.Join(tempDir, "message", "ses_1"), 0755)
 	os.MkdirAll(filepath.Join(tempDir, "part", "ses_1"), 0755)
 
-	p := NewProvider(tempDir, 5*time.Second)
+	p := NewProvider(tempDir, 5*time.Second, 0)
 	p.Discover(context.Background())
 
-	// SendInput returns error (not supported)
-	if err := p.SendInput("ses_1", "test"); err == nil {
-		t.Error("SendInput() should return error (not supported for opencode)")
+	if err := p.SendInput("ses_1", ""); err == nil {
+		t.Error("SendInput() should error for empty input")
 	}
 
-	// SendInput for non-existent
 	if err := p.SendInput("non-existent", "test"); err == nil {
 		t.Error("SendInput() should error for non-existent agent")
 	}
@@ -635,7 +681,7 @@ func TestProvider_Watch(t *testing.T) {
 	os.MkdirAll(filepath.Join(tempDir, "message", "ses_1"), 0755)
 	os.MkdirAll(filepath.Join(tempDir, "part", "ses_1"), 0755)
 
-	p := NewProvider(tempDir, 100*time.Millisecond)
+	p := NewProvider(tempDir, 100*time.Millisecond, 0)
 	p.Discover(context.Background())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

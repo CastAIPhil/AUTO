@@ -52,6 +52,7 @@ type OpenCodeConfig struct {
 	Enabled       bool          `yaml:"enabled"`
 	StoragePath   string        `yaml:"storage_path"`
 	WatchInterval time.Duration `yaml:"watch_interval"`
+	MaxAge        time.Duration `yaml:"max_age"` // Max age of sessions to load (0 = no limit)
 }
 
 // AlertsConfig holds alert settings
@@ -140,6 +141,7 @@ func DefaultConfig() *Config {
 				Enabled:       true,
 				StoragePath:   filepath.Join(homeDir, ".local", "share", "opencode", "storage"),
 				WatchInterval: 1 * time.Second,
+				MaxAge:        24 * time.Hour,
 			},
 		},
 		Alerts: AlertsConfig{

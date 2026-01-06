@@ -397,9 +397,31 @@ func (a *OpenCodeAgent) LastError() error {
 	return a.lastError
 }
 
-// SendInput sends input to the agent (not supported for opencode)
+// SendInput sends input to the agent by appending to the session via CLI
 func (a *OpenCodeAgent) SendInput(input string) error {
-	return fmt.Errorf("input forwarding not supported for opencode sessions")
+	if input == "" {
+		return fmt.Errorf("empty input")
+	}
+
+	a.mu.RLock()
+	sessionID := a.id
+	workDir := a.directory
+	a.mu.RUnlock()
+
+	cmd := exec.Command("opencode", "run", "-s", sessionID, input)
+	cmd.Dir = workDir
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		if stderr.Len() > 0 {
+			return fmt.Errorf("opencode run failed: %s", stderr.String())
+		}
+		return fmt.Errorf("opencode run failed: %w", err)
+	}
+
+	return nil
 }
 
 // Terminate terminates the agent
@@ -426,16 +448,18 @@ func (a *OpenCodeAgent) Resume() error {
 type Provider struct {
 	storagePath   string
 	watchInterval time.Duration
+	maxAge        time.Duration
 	agents        map[string]*OpenCodeAgent
 	mu            sync.RWMutex
 	watcher       *fsnotify.Watcher
 }
 
 // NewProvider creates a new opencode provider
-func NewProvider(storagePath string, watchInterval time.Duration) *Provider {
+func NewProvider(storagePath string, watchInterval time.Duration, maxAge time.Duration) *Provider {
 	return &Provider{
 		storagePath:   storagePath,
 		watchInterval: watchInterval,
+		maxAge:        maxAge,
 		agents:        make(map[string]*OpenCodeAgent),
 	}
 }
@@ -490,6 +514,10 @@ func (p *Provider) Discover(ctx context.Context) ([]agent.Agent, error) {
 			a, err := NewOpenCodeAgent(p.storagePath, sessionFilePath)
 			if err != nil {
 				continue // Skip invalid sessions
+			}
+
+			if p.maxAge > 0 && time.Since(a.LastActivity()) > p.maxAge {
+				continue
 			}
 
 			p.agents[a.ID()] = a

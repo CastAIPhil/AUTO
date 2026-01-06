@@ -63,6 +63,7 @@ func main() {
 		provider := opencode.NewProvider(
 			cfg.Providers.OpenCode.StoragePath,
 			cfg.Providers.OpenCode.WatchInterval,
+			cfg.Providers.OpenCode.MaxAge,
 		)
 		registry.Register(provider)
 	}
