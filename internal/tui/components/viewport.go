@@ -337,34 +337,54 @@ func (s *SessionViewport) handleStreamEvent(msg StreamEventMsg) tea.Cmd {
 	event := msg.Event
 
 	switch event.Type {
-	case "text":
+	case "text", "part.created", "part.updated", "raw":
+		if event.Text != "" {
+			s.isStreaming = true
+			s.streamContent.WriteString(event.Text)
+			combined := s.content + "\n" + s.streamContent.String()
+			s.viewport.SetContent(s.formatContent(combined))
+			if s.autoScroll {
+				s.viewport.GotoBottom()
+			}
+		}
+
+	case "tool-start", "tool.call", "tool-invocation":
 		s.isStreaming = true
-		s.streamContent.WriteString(event.Text)
+		toolName := event.ToolName
+		if toolName == "" {
+			toolName = "tool"
+		}
+		s.streamContent.WriteString(fmt.Sprintf("\n[Tool: %s]\n", toolName))
 		combined := s.content + "\n" + s.streamContent.String()
 		s.viewport.SetContent(s.formatContent(combined))
 		if s.autoScroll {
 			s.viewport.GotoBottom()
 		}
 
-	case "tool-start":
-		s.isStreaming = true
-		s.streamContent.WriteString(fmt.Sprintf("\n[Tool: %s]\n", event.ToolName))
+	case "tool-end", "tool.result":
+		toolName := event.ToolName
+		if toolName == "" {
+			toolName = "tool"
+		}
+		state := event.State
+		if state == "" {
+			state = "done"
+		}
+		s.streamContent.WriteString(fmt.Sprintf("[/%s: %s]\n", toolName, state))
 		combined := s.content + "\n" + s.streamContent.String()
 		s.viewport.SetContent(s.formatContent(combined))
 		if s.autoScroll {
 			s.viewport.GotoBottom()
 		}
 
-	case "tool-end":
-		s.streamContent.WriteString(fmt.Sprintf("[/%s: %s]\n", event.ToolName, event.State))
-		combined := s.content + "\n" + s.streamContent.String()
-		s.viewport.SetContent(s.formatContent(combined))
-		if s.autoScroll {
-			s.viewport.GotoBottom()
-		}
-
-	case "done", "error":
+	case "done", "error", "message.done", "stderr":
 		s.isStreaming = false
+		if event.Error != "" {
+			s.streamContent.WriteString(fmt.Sprintf("\n[Error: %s]\n", event.Error))
+		}
+		if event.Type == "stderr" && event.Text != "" {
+			s.streamContent.WriteString(fmt.Sprintf("[stderr] %s\n", event.Text))
+		}
 		if s.streamContent.Len() > 0 {
 			s.content = s.content + "\n" + s.streamContent.String()
 			s.streamContent.Reset()
@@ -372,6 +392,17 @@ func (s *SessionViewport) handleStreamEvent(msg StreamEventMsg) tea.Cmd {
 		s.viewport.SetContent(s.formatContent(s.content))
 		if s.autoScroll {
 			s.viewport.GotoBottom()
+		}
+
+	default:
+		if event.Text != "" {
+			s.isStreaming = true
+			s.streamContent.WriteString(event.Text)
+			combined := s.content + "\n" + s.streamContent.String()
+			s.viewport.SetContent(s.formatContent(combined))
+			if s.autoScroll {
+				s.viewport.GotoBottom()
+			}
 		}
 	}
 
