@@ -384,6 +384,7 @@ func (a *App) updateSizes() {
 		}
 		if a.alerts == nil {
 			a.alerts = components.NewAlertsPanel(a.theme, a.alertMgr, rightPanelWidth, alertsHeight)
+			a.alerts.Update(components.AlertRefreshMsg{})
 		} else {
 			a.alerts.SetSize(rightPanelWidth, alertsHeight)
 		}

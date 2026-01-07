@@ -9,6 +9,7 @@ import (
 	"github.com/CastAIPhil/AUTO/internal/agent"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -24,6 +25,7 @@ type SessionViewport struct {
 	height        int
 	autoScroll    bool
 	isStreaming   bool
+	mdRenderer    *glamour.TermRenderer
 
 	lastContentLen   int
 	formattedContent string
@@ -34,8 +36,13 @@ type SessionViewport struct {
 
 // NewSessionViewport creates a new session viewport
 func NewSessionViewport(theme *Theme, width, height int) *SessionViewport {
-	vp := viewport.New(width-4, height-6) // Account for borders and header
+	vp := viewport.New(width-4, height-6)
 	vp.Style = lipgloss.NewStyle()
+
+	renderer, _ := glamour.NewTermRenderer(
+		glamour.WithAutoStyle(),
+		glamour.WithWordWrap(width-8),
+	)
 
 	return &SessionViewport{
 		viewport:     vp,
@@ -43,6 +50,7 @@ func NewSessionViewport(theme *Theme, width, height int) *SessionViewport {
 		width:        width,
 		height:       height,
 		autoScroll:   true,
+		mdRenderer:   renderer,
 		contentDirty: true,
 		headerDirty:  true,
 	}
@@ -159,17 +167,23 @@ func (s *SessionViewport) renderEmptyState() string {
 `)
 }
 
-// formatContent formats the output content
+// formatContent formats the output content with markdown rendering
 func (s *SessionViewport) formatContent(content string) string {
 	if content == "" {
 		return s.theme.Base.Faint(true).Render("(no output)")
+	}
+
+	if s.mdRenderer != nil {
+		rendered, err := s.mdRenderer.Render(content)
+		if err == nil {
+			return strings.TrimSpace(rendered)
+		}
 	}
 
 	lines := strings.Split(content, "\n")
 	var formatted []string
 
 	for _, line := range lines {
-		// Highlight errors
 		if strings.Contains(strings.ToLower(line), "error") {
 			line = s.theme.StatusStyle(agent.StatusErrored).Render(line)
 		} else if strings.Contains(strings.ToLower(line), "warning") {
@@ -267,6 +281,14 @@ func (s *SessionViewport) SetSize(width, height int) {
 	s.height = height
 	s.viewport.Width = width - 4
 	s.viewport.Height = height - 8
+
+	renderer, err := glamour.NewTermRenderer(
+		glamour.WithAutoStyle(),
+		glamour.WithWordWrap(width-8),
+	)
+	if err == nil {
+		s.mdRenderer = renderer
+	}
 }
 
 // SetFocused sets the focus state
