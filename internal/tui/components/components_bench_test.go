@@ -225,7 +225,8 @@ func BenchmarkShortHelp(b *testing.B) {
 }
 
 func BenchmarkSpawnDialogView(b *testing.B) {
-	d := NewSpawnDialog()
+	theme := DefaultDarkTheme()
+	d := NewSpawnDialog(theme, 80, 40)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

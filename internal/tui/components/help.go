@@ -74,6 +74,7 @@ func (h *HelpScreen) View() string {
 		{
 			title: "Actions",
 			keys: [][2]string{
+				{"n", "New session"},
 				{"i", "Send input to agent"},
 				{"ctrl+c", "Cancel streaming"},
 				{"x", "Terminate agent"},

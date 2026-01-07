@@ -259,6 +259,12 @@ func DefaultCommands() []Command {
 			Keys:        "a",
 			Action:      func() tea.Msg { return ToggleAlertsMsg{} },
 		},
+		{
+			Name:        "New Session",
+			Description: "Spawn a new agent session",
+			Keys:        "n",
+			Action:      func() tea.Msg { return SpawnSessionMsg{} },
+		},
 	}
 }
 

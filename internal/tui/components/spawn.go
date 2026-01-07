@@ -1,10 +1,10 @@
 package components
 
 import (
+	"github.com/CastAIPhil/AUTO/internal/agent"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/CastAIPhil/AUTO/internal/agent"
 )
 
 type SpawnState int
@@ -16,14 +16,16 @@ const (
 )
 
 type SpawnDialog struct {
-	directoryInput textinput.Model
-	nameInput      textinput.Model
-	state          SpawnState
-	providerType   string
-	width          int
-	height         int
-	cancelled      bool
-	submitted      bool
+	theme        *Theme
+	dirPicker    *DirectoryPicker
+	nameInput    textinput.Model
+	state        SpawnState
+	providerType string
+	width        int
+	height       int
+	cancelled    bool
+	submitted    bool
+	selectedDir  string
 }
 
 type SpawnResult struct {
@@ -31,109 +33,107 @@ type SpawnResult struct {
 	Cancelled bool
 }
 
-func NewSpawnDialog() SpawnDialog {
-	dirInput := textinput.New()
-	dirInput.Placeholder = "Working directory (e.g., ~/projects/myapp)"
-	dirInput.Focus()
-	dirInput.Width = 50
-
+func NewSpawnDialog(theme *Theme, width, height int) *SpawnDialog {
 	nameInput := textinput.New()
 	nameInput.Placeholder = "Session name (optional)"
 	nameInput.Width = 50
 
-	return SpawnDialog{
-		directoryInput: dirInput,
-		nameInput:      nameInput,
-		state:          SpawnStateDirectory,
-		providerType:   "opencode",
-		width:          60,
-		height:         15,
+	pickerWidth := width - 4
+	pickerHeight := height - 8
+	if pickerWidth < 40 {
+		pickerWidth = 40
+	}
+	if pickerHeight < 15 {
+		pickerHeight = 15
+	}
+
+	return &SpawnDialog{
+		theme:        theme,
+		dirPicker:    NewDirectoryPicker(theme, "", pickerWidth, pickerHeight),
+		nameInput:    nameInput,
+		state:        SpawnStateDirectory,
+		providerType: "opencode",
+		width:        width,
+		height:       height,
 	}
 }
 
-func (d SpawnDialog) Init() tea.Cmd {
+func (d *SpawnDialog) Init() tea.Cmd {
 	return textinput.Blink
 }
 
-func (d SpawnDialog) Update(msg tea.Msg) (SpawnDialog, tea.Cmd) {
+func (d *SpawnDialog) Update(msg tea.Msg) (*SpawnDialog, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "esc":
-			d.cancelled = true
-			return d, nil
-
-		case "enter":
-			switch d.state {
-			case SpawnStateDirectory:
-				if d.directoryInput.Value() != "" {
-					d.state = SpawnStateName
-					d.directoryInput.Blur()
-					d.nameInput.Focus()
-					return d, textinput.Blink
+		switch d.state {
+		case SpawnStateDirectory:
+			switch msg.String() {
+			case "esc":
+				d.cancelled = true
+				return d, nil
+			default:
+				d.dirPicker, cmd = d.dirPicker.Update(msg)
+				if d.dirPicker.IsDone() {
+					if d.dirPicker.IsCancelled() {
+						d.cancelled = true
+					} else {
+						d.selectedDir = d.dirPicker.Selected()
+						d.state = SpawnStateName
+						d.nameInput.Focus()
+						return d, textinput.Blink
+					}
 				}
-			case SpawnStateName:
-				d.state = SpawnStateConfirm
-				d.nameInput.Blur()
-				return d, nil
-			case SpawnStateConfirm:
-				d.submitted = true
-				return d, nil
+				return d, cmd
 			}
 
-		case "tab":
-			switch d.state {
-			case SpawnStateDirectory:
-				d.state = SpawnStateName
-				d.directoryInput.Blur()
-				d.nameInput.Focus()
-				return d, textinput.Blink
-			case SpawnStateName:
-				d.state = SpawnStateConfirm
-				d.nameInput.Blur()
-				return d, nil
-			}
-
-		case "shift+tab":
-			switch d.state {
-			case SpawnStateName:
+		case SpawnStateName:
+			switch msg.String() {
+			case "esc":
 				d.state = SpawnStateDirectory
+				d.dirPicker.Reset(d.selectedDir)
 				d.nameInput.Blur()
-				d.directoryInput.Focus()
-				return d, textinput.Blink
-			case SpawnStateConfirm:
+				return d, nil
+			case "enter":
+				d.state = SpawnStateConfirm
+				d.nameInput.Blur()
+				return d, nil
+			default:
+				d.nameInput, cmd = d.nameInput.Update(msg)
+				return d, cmd
+			}
+
+		case SpawnStateConfirm:
+			switch msg.String() {
+			case "esc":
 				d.state = SpawnStateName
 				d.nameInput.Focus()
 				return d, textinput.Blink
-			}
-
-		case "y", "Y":
-			if d.state == SpawnStateConfirm {
+			case "y", "Y", "enter":
 				d.submitted = true
 				return d, nil
-			}
-
-		case "n", "N":
-			if d.state == SpawnStateConfirm {
+			case "n", "N":
 				d.cancelled = true
 				return d, nil
 			}
 		}
 	}
 
-	switch d.state {
-	case SpawnStateDirectory:
-		d.directoryInput, cmd = d.directoryInput.Update(msg)
-	case SpawnStateName:
-		d.nameInput, cmd = d.nameInput.Update(msg)
-	}
-
 	return d, cmd
 }
 
-func (d SpawnDialog) View() string {
+func (d *SpawnDialog) View() string {
+	switch d.state {
+	case SpawnStateDirectory:
+		return d.dirPicker.View()
+	case SpawnStateName, SpawnStateConfirm:
+		return d.renderNameAndConfirm()
+	}
+	return ""
+}
+
+func (d *SpawnDialog) renderNameAndConfirm() string {
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("39")).
@@ -155,15 +155,9 @@ func (d SpawnDialog) View() string {
 	var content string
 	content += titleStyle.Render("Spawn New Agent Session") + "\n\n"
 
-	// Directory input
-	if d.state == SpawnStateDirectory {
-		content += activeLabel.Render("Directory:") + "\n"
-	} else {
-		content += labelStyle.Render("Directory:") + "\n"
-	}
-	content += d.directoryInput.View() + "\n\n"
+	content += labelStyle.Render("Directory:") + "\n"
+	content += activeLabel.Render(d.selectedDir) + "\n\n"
 
-	// Name input
 	if d.state == SpawnStateName {
 		content += activeLabel.Render("Name (optional):") + "\n"
 	} else {
@@ -171,24 +165,21 @@ func (d SpawnDialog) View() string {
 	}
 	content += d.nameInput.View() + "\n\n"
 
-	// Provider info
 	content += labelStyle.Render("Provider: ") + d.providerType + "\n\n"
 
-	// Confirm prompt
 	if d.state == SpawnStateConfirm {
 		content += activeLabel.Render("Spawn session? (y/n)") + "\n"
 	}
 
-	// Help text
 	helpStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("241")).
 		MarginTop(1)
-	content += helpStyle.Render("Tab: next field | Esc: cancel | Enter: confirm")
+	content += helpStyle.Render("Enter: confirm | Esc: back")
 
 	return boxStyle.Render(content)
 }
 
-func (d SpawnDialog) Result() SpawnResult {
+func (d *SpawnDialog) Result() SpawnResult {
 	if d.cancelled {
 		return SpawnResult{Cancelled: true}
 	}
@@ -202,16 +193,38 @@ func (d SpawnDialog) Result() SpawnResult {
 		Config: agent.SpawnConfig{
 			Type:      d.providerType,
 			Name:      name,
-			Directory: d.directoryInput.Value(),
+			Directory: d.selectedDir,
 		},
 		Cancelled: false,
 	}
 }
 
-func (d SpawnDialog) IsComplete() bool {
+func (d *SpawnDialog) IsComplete() bool {
 	return d.cancelled || d.submitted
 }
 
-func (d SpawnDialog) IsCancelled() bool {
+func (d *SpawnDialog) IsCancelled() bool {
 	return d.cancelled
 }
+
+func (d *SpawnDialog) SetSize(width, height int) {
+	d.width = width
+	d.height = height
+	d.dirPicker.SetSize(width-4, height-8)
+	d.nameInput.Width = width - 10
+}
+
+func (d *SpawnDialog) Reset() {
+	d.state = SpawnStateDirectory
+	d.cancelled = false
+	d.submitted = false
+	d.selectedDir = ""
+	d.nameInput.SetValue("")
+	d.dirPicker.Reset("")
+}
+
+type SpawnSessionMsg struct{}
+type SpawnCompleteMsg struct {
+	Config agent.SpawnConfig
+}
+type SpawnCancelledMsg struct{}

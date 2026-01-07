@@ -33,23 +33,25 @@ type App struct {
 	manager  *session.Manager
 	alertMgr *alert.Manager
 
-	agentList *components.AgentList
-	viewport  *components.SessionViewport
-	stats     *components.StatsPanel
-	alerts    *components.AlertsPanel
-	input     *components.InputBar
-	command   *components.CommandPalette
-	help      *components.HelpScreen
+	agentList   *components.AgentList
+	viewport    *components.SessionViewport
+	stats       *components.StatsPanel
+	alerts      *components.AlertsPanel
+	input       *components.InputBar
+	command     *components.CommandPalette
+	help        *components.HelpScreen
+	spawnDialog *components.SpawnDialog
 
-	activePane  Pane
-	showStats   bool
-	showAlerts  bool
-	inputActive bool
-	width       int
-	height      int
-	ready       bool
-	ctx         context.Context
-	eventChan   chan agent.Event
+	activePane   Pane
+	showStats    bool
+	showAlerts   bool
+	inputActive  bool
+	spawnVisible bool
+	width        int
+	height       int
+	ready        bool
+	ctx          context.Context
+	eventChan    chan agent.Event
 
 	// Streaming state
 	streamChan    <-chan agent.StreamEvent
@@ -135,6 +137,21 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, cmd
 		}
 
+		if a.spawnVisible && a.spawnDialog != nil {
+			var cmd tea.Cmd
+			a.spawnDialog, cmd = a.spawnDialog.Update(msg)
+			if a.spawnDialog.IsComplete() {
+				a.spawnVisible = false
+				if !a.spawnDialog.IsCancelled() {
+					result := a.spawnDialog.Result()
+					a.spawnDialog.Reset()
+					return a, a.spawnSession(result.Config)
+				}
+				a.spawnDialog.Reset()
+			}
+			return a, cmd
+		}
+
 		if a.inputActive {
 			var cmd tea.Cmd
 			a.input, cmd = a.input.Update(msg)
@@ -189,6 +206,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "x":
 			if selected := a.agentList.Selected(); selected != nil {
 				a.manager.Terminate(selected.ID())
+			}
+			return a, nil
+
+		case "n":
+			a.spawnVisible = true
+			if a.spawnDialog != nil {
+				a.spawnDialog.Reset()
 			}
 			return a, nil
 		}
@@ -406,6 +430,12 @@ func (a *App) updateSizes() {
 	}
 	a.help.SetSize(a.width*2/3, a.height*2/3)
 
+	if a.spawnDialog == nil {
+		a.spawnDialog = components.NewSpawnDialog(a.theme, a.width*2/3, a.height*2/3)
+	} else {
+		a.spawnDialog.SetSize(a.width*2/3, a.height*2/3)
+	}
+
 	a.updateFocus()
 }
 
@@ -458,6 +488,10 @@ func (a *App) View() string {
 
 	if a.help.IsVisible() {
 		return a.renderCentered(a.help.View())
+	}
+
+	if a.spawnVisible && a.spawnDialog != nil {
+		return a.renderCentered(a.spawnDialog.View())
 	}
 
 	header := a.renderHeader()
@@ -739,7 +773,6 @@ func (a *App) isStreaming() bool {
 	return a.streamChan != nil
 }
 
-// cancelStreaming cancels the current streaming operation
 func (a *App) cancelStreaming() {
 	if a.streamCancel != nil {
 		a.streamCancel()
@@ -750,5 +783,16 @@ func (a *App) cancelStreaming() {
 
 	if a.viewport != nil {
 		a.viewport.ClearStreamContent()
+	}
+}
+
+func (a *App) spawnSession(config agent.SpawnConfig) tea.Cmd {
+	return func() tea.Msg {
+		_, err := a.manager.Spawn(a.ctx, config)
+		if err != nil {
+			return components.SpawnCancelledMsg{}
+		}
+		a.manager.Refresh(a.ctx)
+		return components.AgentListRefreshMsg{}
 	}
 }

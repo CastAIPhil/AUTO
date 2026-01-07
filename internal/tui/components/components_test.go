@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/CastAIPhil/AUTO/internal/agent"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 type mockAgent struct {
@@ -275,7 +275,8 @@ func TestFilterSetCounts(t *testing.T) {
 // =============================================================================
 
 func TestNewSpawnDialog(t *testing.T) {
-	d := NewSpawnDialog()
+	theme := DefaultDarkTheme()
+	d := NewSpawnDialog(theme, 80, 40)
 
 	if d.state != SpawnStateDirectory {
 		t.Errorf("initial state = %v, want SpawnStateDirectory", d.state)
@@ -291,56 +292,9 @@ func TestNewSpawnDialog(t *testing.T) {
 	}
 }
 
-func TestSpawnDialogStateTransitions(t *testing.T) {
-	tests := []struct {
-		name       string
-		setupValue string
-		pressKey   string
-		wantState  SpawnState
-	}{
-		{
-			name:       "enter with empty directory stays",
-			setupValue: "",
-			pressKey:   "enter",
-			wantState:  SpawnStateDirectory,
-		},
-		{
-			name:       "enter with directory advances to name",
-			setupValue: "/test/dir",
-			pressKey:   "enter",
-			wantState:  SpawnStateName,
-		},
-		{
-			name:       "tab advances to name",
-			setupValue: "",
-			pressKey:   "tab",
-			wantState:  SpawnStateName,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			d := NewSpawnDialog()
-			d.directoryInput.SetValue(tt.setupValue)
-
-			msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(tt.pressKey)}
-			if tt.pressKey == "enter" {
-				msg = tea.KeyMsg{Type: tea.KeyEnter}
-			} else if tt.pressKey == "tab" {
-				msg = tea.KeyMsg{Type: tea.KeyTab}
-			}
-
-			d, _ = d.Update(msg)
-
-			if d.state != tt.wantState {
-				t.Errorf("state = %v, want %v", d.state, tt.wantState)
-			}
-		})
-	}
-}
-
 func TestSpawnDialogEscCancels(t *testing.T) {
-	d := NewSpawnDialog()
+	theme := DefaultDarkTheme()
+	d := NewSpawnDialog(theme, 80, 40)
 
 	msg := tea.KeyMsg{Type: tea.KeyEsc}
 	d, _ = d.Update(msg)
@@ -383,8 +337,9 @@ func TestSpawnDialogResult(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			d := NewSpawnDialog()
-			d.directoryInput.SetValue(tt.directory)
+			theme := DefaultDarkTheme()
+			d := NewSpawnDialog(theme, 80, 40)
+			d.selectedDir = tt.directory
 			d.nameInput.SetValue(tt.sessionName)
 			d.cancelled = tt.cancelled
 
@@ -404,11 +359,11 @@ func TestSpawnDialogResult(t *testing.T) {
 }
 
 func TestSpawnDialogConfirmState(t *testing.T) {
-	d := NewSpawnDialog()
-	d.directoryInput.SetValue("/test")
+	theme := DefaultDarkTheme()
+	d := NewSpawnDialog(theme, 80, 40)
+	d.selectedDir = "/test"
 	d.state = SpawnStateConfirm
 
-	// Test 'y' confirms
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}}
 	d, _ = d.Update(msg)
 
@@ -419,8 +374,7 @@ func TestSpawnDialogConfirmState(t *testing.T) {
 		t.Error("dialog should be complete after submission")
 	}
 
-	// Test 'n' cancels
-	d2 := NewSpawnDialog()
+	d2 := NewSpawnDialog(theme, 80, 40)
 	d2.state = SpawnStateConfirm
 	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}}
 	d2, _ = d2.Update(msg)
