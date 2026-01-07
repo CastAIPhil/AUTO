@@ -321,6 +321,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.showAlerts = !a.showAlerts
 		a.updateSizes()
 
+	case components.SpawnSessionMsg:
+		a.spawnVisible = true
+		if a.spawnDialog != nil {
+			a.spawnDialog.Reset()
+		}
+		return a, nil
+
 	case *alert.Alert:
 		if a.alerts != nil {
 			a.alerts, _ = a.alerts.Update(msg)
